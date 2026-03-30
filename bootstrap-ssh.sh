@@ -9,7 +9,7 @@ set -euo pipefail
 # ─── CONFIGURATION ────────────────────────────────────────────────────────────
 DOTFILES_REPO="https://github.com/WillScarlettOhara/dotfiles-ssh" # ← À changer
 DOTFILES_DIR="$HOME/.dotfiles-ssh"
-BW_ITEM_SSH_KEY="ssh-perso" # ← Nom de l'item Bitwarden contenant ta clé SSH
+BW_ITEM_SSH_KEY="SSH GitHub" # ← Nom de l'item Bitwarden contenant ta clé SSH
 SSH_KEY_PATH="$HOME/.ssh/id_ed25519"
 
 # ─── COULEURS ─────────────────────────────────────────────────────────────────
