@@ -141,11 +141,14 @@ install_bitwarden_cli() {
     return
   fi
 
-  # Sur Arch/EndeavourOS, si on utilise NVM, il vaut mieux l'installer via NPM
-  # pour éviter les conflits avec le binaire système et ses dépendances WASM.
-  info "Installing Bitwarden CLI via NPM..."
-  npm install -g @bitwarden/cli &>/dev/null
-
+  if ! command -v bw &>/dev/null; then
+    echo ""
+    echo "🔐 Installation Bitwarden CLI..."
+    wget -q "https://vault.bitwarden.com/download/?app=cli&platform=linux" -O /tmp/bw.zip
+    unzip -q /tmp/bw.zip -d /tmp/bw
+    sudo install -m 755 /tmp/bw/bw /usr/local/bin/bw
+    rm -rf /tmp/bw.zip /tmp/bw
+  fi
   ok "Bitwarden CLI installed ($(bw --version))"
 }
 
