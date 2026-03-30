@@ -97,9 +97,9 @@ install_base_packages() {
   local common_deps=(curl git wget unzip tar jq)
 
   case "$DISTRO_FAMILY" in
-  debian) local extra=(zsh build-essential ca-certificates gnupg apt-transport-https) ;;
-  fedora) local extra=(zsh gcc make ca-certificates gnupg2) ;;
-  arch) local extra=(zsh base-devel ca-certificates gnupg) ;;
+  debian) local extra=(zsh build-essential ca-certificates gnupg apt-transport-https openssh-server) ;;
+  fedora) local extra=(zsh gcc make ca-certificates gnupg2 openssh-server) ;;
+  arch) local extra=(zsh base-devel ca-certificates gnupg openssh) ;;
   *) local extra=() ;;
   esac
 
@@ -611,6 +611,65 @@ set_default_shell() {
   else
     warn "chsh failed. Run manually: chsh -s $zsh_path"
   fi
+}
+
+# ─── STEP 8: SECURE SSH DAEMON ────────────────────────────────────────────────
+setup_ssh_daemon() {
+  step "Securing SSH Daemon (Key-only access)"
+
+  # 1. On s'assure que le service est installé
+  case "$DISTRO_FAMILY" in
+  arch) eval "$PKG_INSTALL openssh" &>/dev/null ;;
+  debian | fedora) eval "$PKG_INSTALL openssh-server" &>/dev/null ;;
+  esac
+
+  # 2. Sauvegarde de la config d'origine
+  if [ ! -f /etc/ssh/sshd_config.bak ]; then
+    $SUDO cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
+  fi
+
+  # 3. Modification de la configuration pour interdire les mots de passe
+  # On utilise 'tee' pour écrire dans un fichier protégé par sudo
+  info "Applying hardening: PasswordAuthentication no..."
+  echo "
+# Configured by bootstrap-ssh.sh
+Protocol 2
+HostKey /etc/ssh/ssh_host_rsa_key
+HostKey /etc/ssh/ssh_host_ed25519_key
+
+# Security Settings
+PasswordAuthentication no
+PubkeyAuthentication yes
+PermitRootLogin prohibit-password
+AuthorizedKeysFile .ssh/authorized_keys
+ChallengeResponseAuthentication no
+UsePAM yes
+PrintMotd no
+AcceptEnv LANG LC_*
+Subsystem sftp /usr/lib/ssh/sftp-server
+" | $SUDO tee /etc/ssh/sshd_config.d/99-hardened.conf &>/dev/null
+
+  # Note: Sur les systèmes modernes, on préfère ajouter un fichier dans sshd_config.d/
+  # pour ne pas écraser le fichier principal. On vérifie s'il est inclus :
+  if ! $SUDO grep -q "Include /etc/ssh/sshd_config.d/\*.conf" /etc/ssh/sshd_config; then
+    echo "Include /etc/ssh/sshd_config.d/*.conf" | $SUDO tee -a /etc/ssh/sshd_config &>/dev/null
+  fi
+
+  # 4. Autoriser sa propre clé (id_rsa.pub) dans authorized_keys
+  if [ -f "${SSH_KEY_PATH}.pub" ]; then
+    mkdir -p "$HOME/.ssh"
+    cat "${SSH_KEY_PATH}.pub" >>"$HOME/.ssh/authorized_keys"
+    chmod 600 "$HOME/.ssh/authorized_keys"
+    ok "Added your Bitwarden SSH key to authorized_keys"
+  else
+    warn "No public key found to add to authorized_keys!"
+  fi
+
+  # 5. Redémarrage et activation du service
+  info "Restarting SSH service..."
+  $SUDO systemctl enable --now sshd &>/dev/null || $SUDO systemctl enable --now ssh &>/dev/null
+
+  ok "SSH Daemon secured and running (Key-only)"
 }
 
 # ─── SUMMARY ──────────────────────────────────────────────────────────────────
