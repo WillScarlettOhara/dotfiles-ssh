@@ -7,7 +7,7 @@
 set -euo pipefail
 
 # ─── CONFIGURATION ────────────────────────────────────────────────────────────
-DOTFILES_REPO="https://github.com/TON_USER/dotfiles-ssh" # ← À changer
+DOTFILES_REPO="https://github.com/WillScarlettOhara/dotfiles-ssh" # ← À changer
 DOTFILES_DIR="$HOME/.dotfiles-ssh"
 BW_ITEM_SSH_KEY="ssh-perso" # ← Nom de l'item Bitwarden contenant ta clé SSH
 SSH_KEY_PATH="$HOME/.ssh/id_ed25519"
@@ -175,7 +175,8 @@ setup_ssh_keys() {
 
   if [ -z "${BW_SESSION:-}" ]; then
     error "Échec du déverrouillage Bitwarden. Vérifie ton mot de passe maître."
-    return 1
+    warn "Étape clés SSH ignorée — le reste du bootstrap continue."
+    return 0
   fi
 
   # Synchronisation du coffre
@@ -209,23 +210,26 @@ setup_ssh_keys() {
     if [ -z "$item_id" ]; then
       error "Item Bitwarden '${BW_ITEM_SSH_KEY}' introuvable. Vérifie BW_ITEM_SSH_KEY."
       bw lock &>/dev/null || true
-      return 1
+      warn "Étape clés SSH ignorée — le reste du bootstrap continue."
+      return 0
     fi
 
     local tmp_dir
     tmp_dir=$(mktemp -d)
-    bw get attachment id_ed25519 --itemid "$item_id" --output "$tmp_dir/" --session "$BW_SESSION" &>/dev/null || true
-    bw get attachment id_ed25519.pub --itemid "$item_id" --output "$tmp_dir/" --session "$BW_SESSION" &>/dev/null || true
+    local key_name
+    key_name=$(basename "$SSH_KEY_PATH") # id_rsa, id_ed25519, etc.
+    bw get attachment "$key_name" --itemid "$item_id" --output "$tmp_dir/" --session "$BW_SESSION" &>/dev/null || true
+    bw get attachment "${key_name}.pub" --itemid "$item_id" --output "$tmp_dir/" --session "$BW_SESSION" &>/dev/null || true
 
-    if [ -f "$tmp_dir/id_ed25519" ]; then
-      cp "$tmp_dir/id_ed25519" "$SSH_KEY_PATH"
-      cp "$tmp_dir/id_ed25519.pub" "${SSH_KEY_PATH}.pub" 2>/dev/null || true
+    if [ -f "$tmp_dir/$key_name" ]; then
+      cp "$tmp_dir/$key_name" "$SSH_KEY_PATH"
+      cp "$tmp_dir/${key_name}.pub" "${SSH_KEY_PATH}.pub" 2>/dev/null || true
       chmod 600 "$SSH_KEY_PATH"
       chmod 644 "${SSH_KEY_PATH}.pub" 2>/dev/null || true
       ok "Clé SSH (attachement) déployée → $SSH_KEY_PATH"
     else
       warn "Aucune clé trouvée dans l'item '${BW_ITEM_SSH_KEY}'."
-      warn "Assure-toi que l'item est de type SSH Key, ou contient des pièces jointes id_ed25519."
+      warn "Assure-toi que l'item est de type SSH Key, ou contient des pièces jointes ${key_name}."
     fi
     rm -rf "$tmp_dir"
   fi
