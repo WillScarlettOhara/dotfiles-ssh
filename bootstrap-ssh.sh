@@ -181,57 +181,22 @@ setup_ssh_keys() {
 
   # Synchronisation du coffre
   info "Synchronisation du coffre..."
-  bw sync --session "$BW_SESSION" &>/dev/null
+  bw sync &>/dev/null
 
-  # ── Récupération des clés SSH ────────────────────────────────────────────────
-  # L'item Bitwarden doit être de type "SSH Key" (sshKey.privateKey / sshKey.publicKey)
-  # OU un Login/Note avec les clés en pièces jointes (fallback)
+  # ── Récupération des clés SSH (item de type SSH Key natif Bitwarden) ─────────
   local private_key public_key
-
-  private_key=$(bw get item "$BW_ITEM_SSH_KEY" --session "$BW_SESSION" 2>/dev/null |
-    jq -r '.sshKey.privateKey // empty')
-  public_key=$(bw get item "$BW_ITEM_SSH_KEY" --session "$BW_SESSION" 2>/dev/null |
-    jq -r '.sshKey.publicKey // empty')
+  private_key=$(bw get item "$BW_ITEM_SSH_KEY" | jq -r '.sshKey.privateKey // empty')
+  public_key=$(bw get item "$BW_ITEM_SSH_KEY" | jq -r '.sshKey.publicKey  // empty')
 
   if [ -n "$private_key" ]; then
-    # ── Méthode 1 : item SSH Key natif Bitwarden ────────────────────────────
     printf '%s\n' "$private_key" >"$SSH_KEY_PATH"
     printf '%s\n' "$public_key" >"${SSH_KEY_PATH}.pub"
     chmod 600 "$SSH_KEY_PATH"
     chmod 644 "${SSH_KEY_PATH}.pub"
-    ok "Clé SSH (sshKey) déployée → $SSH_KEY_PATH"
+    ok "Clé SSH déployée → $SSH_KEY_PATH"
   else
-    # ── Méthode 2 : pièces jointes (id_ed25519 + id_ed25519.pub) ───────────
-    info "Pas de champ sshKey trouvé — recherche dans les pièces jointes..."
-    local item_id
-    item_id=$(bw get item "$BW_ITEM_SSH_KEY" --session "$BW_SESSION" 2>/dev/null |
-      jq -r '.id // empty')
-
-    if [ -z "$item_id" ]; then
-      error "Item Bitwarden '${BW_ITEM_SSH_KEY}' introuvable. Vérifie BW_ITEM_SSH_KEY."
-      bw lock &>/dev/null || true
-      warn "Étape clés SSH ignorée — le reste du bootstrap continue."
-      return 0
-    fi
-
-    local tmp_dir
-    tmp_dir=$(mktemp -d)
-    local key_name
-    key_name=$(basename "$SSH_KEY_PATH") # id_rsa, id_ed25519, etc.
-    bw get attachment "$key_name" --itemid "$item_id" --output "$tmp_dir/" --session "$BW_SESSION" &>/dev/null || true
-    bw get attachment "${key_name}.pub" --itemid "$item_id" --output "$tmp_dir/" --session "$BW_SESSION" &>/dev/null || true
-
-    if [ -f "$tmp_dir/$key_name" ]; then
-      cp "$tmp_dir/$key_name" "$SSH_KEY_PATH"
-      cp "$tmp_dir/${key_name}.pub" "${SSH_KEY_PATH}.pub" 2>/dev/null || true
-      chmod 600 "$SSH_KEY_PATH"
-      chmod 644 "${SSH_KEY_PATH}.pub" 2>/dev/null || true
-      ok "Clé SSH (attachement) déployée → $SSH_KEY_PATH"
-    else
-      warn "Aucune clé trouvée dans l'item '${BW_ITEM_SSH_KEY}'."
-      warn "Assure-toi que l'item est de type SSH Key, ou contient des pièces jointes ${key_name}."
-    fi
-    rm -rf "$tmp_dir"
+    warn "Champ sshKey vide pour l'item '${BW_ITEM_SSH_KEY}'."
+    warn "Vérifie que l'item est bien de type 'SSH Key' dans Bitwarden."
   fi
 
   # ── known_hosts : uniquement GitHub ─────────────────────────────────────────
