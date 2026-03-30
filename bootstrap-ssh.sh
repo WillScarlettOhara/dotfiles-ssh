@@ -179,7 +179,7 @@ setup_ssh_keys() {
   info "Syncing vault..."
   bw sync &>/dev/null
 
-  # ── Fetch SSH keys (2>/dev/null to silence decryption warnings) ─────────────
+  # ── Fetch SSH keys ──────────────────────────────────────────────────────────
   local private_key public_key
   private_key=$(bw get item "$BW_ITEM_SSH_KEY" 2>/dev/null | jq -r '.sshKey.privateKey // empty')
   public_key=$(bw get item "$BW_ITEM_SSH_KEY" 2>/dev/null | jq -r '.sshKey.publicKey  // empty')
@@ -215,6 +215,9 @@ install_tools() {
   _install_neovim_deps
   _install_lazygit
   _install_zsh_plugins
+
+  # Run post-installation bootstrap for Neovim (Treesitter parsers, Lazy, etc.)
+  _bootstrap_neovim
 
   ok "All tools installed"
 }
@@ -274,9 +277,8 @@ _install_lsd() {
   arch | fedora) eval "$PKG_INSTALL lsd" &>/dev/null ;;
   debian | *)
     local lsd_url
-    # Ajout du `|| true` pour éviter que pipefail ne coupe le script
     lsd_url=$(curl -s https://api.github.com/repos/lsd-rs/lsd/releases/latest |
-      grep "browser_download_url.*amd64.deb" | cut -d'"' -f4 | head -1 || true)
+      grep -Po '"browser_download_url": *"\K[^"]*amd64\.deb' | head -1 || true)
 
     if [ -n "$lsd_url" ]; then
       local tmp_deb
@@ -346,12 +348,12 @@ _install_neovim_deps() {
 
   case "$DISTRO_FAMILY" in
   arch)
-    for pkg in lua luarocks ripgrep fd tree-sitter xclip xsel; do
+    for pkg in lua luarocks ripgrep fd tree-sitter; do
       _pkg_install_verbose "$pkg"
     done
     ;;
   fedora)
-    for pkg in lua luarocks ripgrep fd-find xclip xsel; do
+    for pkg in lua luarocks ripgrep fd-find; do
       _pkg_install_verbose "$pkg"
     done
     if has cargo; then
@@ -360,14 +362,23 @@ _install_neovim_deps() {
     fi
     ;;
   debian | *)
-    for pkg in lua5.4 luarocks ripgrep fd-find xclip xsel; do
+    for pkg in lua5.4 luarocks ripgrep; do
       _pkg_install_verbose "$pkg"
     done
 
-    if has fdfind && ! has fd; then
-      mkdir -p "$HOME/.local/bin"
-      ln -sfn "$(command -v fdfind)" "$HOME/.local/bin/fd"
-      ok "  fd symlink → fdfind ✔"
+    # ─── Récupération de fd direct via GitHub (au lieu de apt) ────────
+    info "  installing latest fd (sharkdp/fd)..."
+    local fd_url
+    fd_url=$(curl -s "https://api.github.com/repos/sharkdp/fd/releases/latest" | grep -Po '"browser_download_url": *"\K[^"]*fd_[0-9][^"]*amd64\.deb' | head -1 || true)
+    if [ -n "$fd_url" ]; then
+      local tmp_deb
+      tmp_deb=$(mktemp --suffix=.deb)
+      curl -fsSL "$fd_url" -o "$tmp_deb" &>/dev/null
+      $SUDO dpkg -i "$tmp_deb" &>/dev/null
+      rm -f "$tmp_deb"
+      ok "  fd ✔"
+    else
+      warn "  fd — download failed"
     fi
 
     # ─── Intégration de NVM pour Node.js et tree-sitter-cli ─────────
@@ -377,13 +388,9 @@ _install_neovim_deps() {
       curl -s -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash &>/dev/null
     fi
 
-    # On source manuellement NVM pour la session courante du script
     [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-
-    # Installation de Node 24
     nvm install 24 &>/dev/null
 
-    # Plus besoin de $SUDO car NVM est installé dans $HOME
     if npm install -g tree-sitter-cli &>/dev/null; then
       ok "  tree-sitter-cli (via nvm) ✔"
     else
@@ -409,7 +416,6 @@ _install_lazygit() {
     ;;
   debian | *)
     local LAZYGIT_VERSION
-    # Correction: utilisation de grep -Po et || true pour ne pas casser set -e
     LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" | grep -Po '"tag_name": *"v\K[^"]*' || true)
 
     if [ -n "$LAZYGIT_VERSION" ]; then
@@ -464,6 +470,15 @@ _sync_neovim_config() {
   fi
 
   kill "$agent_pid" &>/dev/null || true
+}
+
+_bootstrap_neovim() {
+  info "Bootstrapping Neovim parsers..."
+  # Force l'installation des parsers de base en mode Headless
+  if has nvim; then
+    nvim --headless "+TSInstallSync regex bash" "+qa" &>/dev/null || true
+    ok "Treesitter parsers initialized"
+  fi
 }
 
 _install_zsh_plugins() {
@@ -566,11 +581,13 @@ print_summary() {
   echo -e "  ${BOLD}Next steps:${RESET}"
   echo -e "  ${CYAN}1.${RESET} Run ${BOLD}zsh${RESET} or open a new SSH session"
   echo -e "  ${CYAN}2.${RESET} Reconnect to apply docker group membership"
-  echo -e "  ${CYAN}3.${RESET} Check your SSH key: ${BOLD}ls -la ~/.ssh/${RESET}"
-  echo -e "  ${CYAN}4.${RESET} Edit ${BOLD}~/.dotfiles-ssh/zshrc${RESET} to customize"
+  echo -e "  ${CYAN}3.${RESET} Edit ${BOLD}~/.dotfiles-ssh/zshrc${RESET} to customize"
   echo ""
-  echo -e "  ${DIM}Dotfiles : $DOTFILES_DIR${RESET}"
-  echo -e "  ${DIM}Bitwarden session : closed${RESET}"
+  echo -e "  ${YELLOW}Note sur le Presse-papiers (Clipboard SSH):${RESET}"
+  echo -e "  Le presse-papiers système (xclip/xsel) ne fonctionne pas via SSH."
+  echo -e "  ${DIM}Dans ton fichier config lua de Neovim, active OSC 52 pour que${RESET}"
+  echo -e "  ${DIM}la copie se fasse via ton émulateur de terminal host :${RESET}"
+  echo -e "  ${BOLD}vim.g.clipboard = { name = 'OSC 52', copy = { ['+'] = require('vim.ui.clipboard.osc52').copy('+'), ['*'] = require('vim.ui.clipboard.osc52').copy('*') }, paste = { ['+'] = require('vim.ui.clipboard.osc52').paste('+'), ['*'] = require('vim.ui.clipboard.osc52').paste('*') } }${RESET}"
   echo ""
 }
 
