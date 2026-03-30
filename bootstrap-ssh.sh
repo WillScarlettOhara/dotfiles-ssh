@@ -53,7 +53,7 @@ detect_distro() {
   if [ -f /etc/os-release ]; then
     source /etc/os-release
     DISTRO_ID="${ID,,}"
-    DISTRO_LIKE="${ID_LIKE:-}" # ID_LIKE is optional, default to empty
+    DISTRO_LIKE="${ID_LIKE:-}"
     DISTRO_LIKE="${DISTRO_LIKE,,}"
   else
     DISTRO_ID="unknown"
@@ -86,7 +86,7 @@ detect_distro() {
 # ─── COMMAND CHECK ────────────────────────────────────────────────────────────
 has() { command -v "$1" &>/dev/null; }
 
-# Root doesn't need sudo (and sudo is often absent on minimal servers)
+# Root doesn't need sudo
 if [ "$EUID" -eq 0 ]; then SUDO=""; else SUDO="sudo"; fi
 
 # ─── STEP 1: BASE PACKAGES ────────────────────────────────────────────────────
@@ -98,7 +98,7 @@ install_base_packages() {
     return 1
   }
 
-  local common_deps=(curl git wget unzip tar)
+  local common_deps=(curl git wget unzip tar jq)
 
   case "$DISTRO_FAMILY" in
   debian) local extra=(zsh build-essential ca-certificates gnupg apt-transport-https) ;;
@@ -120,7 +120,6 @@ install_bitwarden_cli() {
     return
   fi
 
-  # On Arch: prefer paru/yay
   if [[ "$DISTRO_FAMILY" == "arch" ]]; then
     if has paru; then
       paru -S --noconfirm bitwarden-cli &>/dev/null && ok "Bitwarden CLI installed ($(bw --version))" && return
@@ -129,9 +128,7 @@ install_bitwarden_cli() {
     fi
   fi
 
-  # All distros: official binary via Bitwarden's dynamic URL (no Node.js needed)
   info "Downloading official Bitwarden CLI binary..."
-  eval "$PKG_INSTALL wget unzip jq" &>/dev/null
   wget -qO /tmp/bw.zip "https://vault.bitwarden.com/download/?app=cli&platform=linux"
   unzip -q /tmp/bw.zip -d /tmp/bw_extract
   $SUDO install -m 755 /tmp/bw_extract/bw /usr/local/bin/bw
@@ -164,7 +161,7 @@ setup_ssh_keys() {
     read -s -r BW_PASS </dev/tty
     echo ""
     export BW_PASS
-    BW_SESSION=$(bw unlock --raw --passwordenv BW_PASS 2>/dev/null)
+    BW_SESSION=$(bw unlock --raw --passwordenv BW_PASS 2>/dev/null || true)
     unset BW_PASS
 
     if [ -n "${BW_SESSION:-}" ]; then
@@ -179,14 +176,13 @@ setup_ssh_keys() {
     fi
   done
 
-  # Sync vault
   info "Syncing vault..."
   bw sync &>/dev/null
 
-  # ── Fetch SSH keys (native Bitwarden SSH Key item type) ─────────────────────
+  # ── Fetch SSH keys (2>/dev/null to silence decryption warnings) ─────────────
   local private_key public_key
-  private_key=$(bw get item "$BW_ITEM_SSH_KEY" | jq -r '.sshKey.privateKey // empty')
-  public_key=$(bw get item "$BW_ITEM_SSH_KEY" | jq -r '.sshKey.publicKey  // empty')
+  private_key=$(bw get item "$BW_ITEM_SSH_KEY" 2>/dev/null | jq -r '.sshKey.privateKey // empty')
+  public_key=$(bw get item "$BW_ITEM_SSH_KEY" 2>/dev/null | jq -r '.sshKey.publicKey  // empty')
 
   if [ -n "$private_key" ]; then
     printf '%s\n' "$private_key" >"$SSH_KEY_PATH"
@@ -199,13 +195,11 @@ setup_ssh_keys() {
     warn "Make sure the item type is 'SSH Key' in Bitwarden."
   fi
 
-  # ── known_hosts: GitHub only ─────────────────────────────────────────────────
   info "Adding github.com to known_hosts..."
   ssh-keyscan github.com >>"$HOME/.ssh/known_hosts" 2>/dev/null
   chmod 644 "$HOME/.ssh/known_hosts"
   ok "known_hosts updated"
 
-  # ── Lock vault ───────────────────────────────────────────────────────────────
   bw lock &>/dev/null || true
   unset BW_SESSION
 }
@@ -240,7 +234,6 @@ install_docker() {
     $SUDO systemctl enable --now docker &>/dev/null
     ;;
   debian | fedora | *)
-    # Official Docker convenience script — works on Debian/Ubuntu/Fedora/CentOS
     info "Downloading official Docker install script..."
     curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
     info "Running Docker installer..."
@@ -250,7 +243,6 @@ install_docker() {
     ;;
   esac
 
-  # Add current user to docker group (avoids sudo on every command)
   if getent group docker &>/dev/null; then
     $SUDO usermod -aG docker "$USER"
     warn "Added to 'docker' group — effective on next SSH login"
@@ -282,8 +274,10 @@ _install_lsd() {
   arch | fedora) eval "$PKG_INSTALL lsd" &>/dev/null ;;
   debian | *)
     local lsd_url
+    # Ajout du `|| true` pour éviter que pipefail ne coupe le script
     lsd_url=$(curl -s https://api.github.com/repos/lsd-rs/lsd/releases/latest |
-      grep "browser_download_url.*amd64.deb" | cut -d'"' -f4 | head -1)
+      grep "browser_download_url.*amd64.deb" | cut -d'"' -f4 | head -1 || true)
+
     if [ -n "$lsd_url" ]; then
       local tmp_deb
       tmp_deb=$(mktemp --suffix=.deb)
@@ -309,7 +303,6 @@ _install_fzf() {
 }
 
 _install_neovim() {
-  # Check nvim actually runs — AppImage without FUSE reports as present but crashes
   if has nvim && nvim --version &>/dev/null; then
     ok "neovim already present ($(nvim --version | head -1))"
     _sync_neovim_config
@@ -317,7 +310,7 @@ _install_neovim() {
   fi
 
   if has nvim; then
-    warn "neovim found but not functional (broken AppImage?) — reinstalling..."
+    warn "neovim found but not functional — reinstalling..."
     $SUDO rm -f "$(command -v nvim)" 2>/dev/null || true
     $SUDO rm -f /usr/local/bin/nvim 2>/dev/null || true
     $SUDO rm -rf /opt/nvim-linux-x86_64 2>/dev/null || true
@@ -364,40 +357,42 @@ _install_neovim_deps() {
     if has cargo; then
       info "  installing tree-sitter-cli via cargo..."
       cargo install tree-sitter-cli &>/dev/null && ok "  tree-sitter-cli ✔" || warn "  tree-sitter-cli — cargo install failed"
-    else
-      warn "  tree-sitter-cli skipped (no cargo found)"
     fi
     ;;
   debian | *)
     for pkg in lua5.4 luarocks ripgrep fd-find xclip xsel; do
       _pkg_install_verbose "$pkg"
     done
-    # fd-find ships as 'fdfind' on Debian/Ubuntu — create symlink
+
     if has fdfind && ! has fd; then
       mkdir -p "$HOME/.local/bin"
       ln -sfn "$(command -v fdfind)" "$HOME/.local/bin/fd"
       ok "  fd symlink → fdfind ✔"
     fi
-    # tree-sitter-cli: no official Debian package
-    if has npm; then
-      info "  installing tree-sitter-cli via npm..."
-      $SUDO npm install -g tree-sitter-cli &>/dev/null &&
-        ok "  tree-sitter-cli ✔" ||
-        warn "  tree-sitter-cli — npm install failed"
-    elif has cargo; then
-      info "  installing tree-sitter-cli via cargo..."
-      cargo install tree-sitter-cli &>/dev/null &&
-        ok "  tree-sitter-cli ✔" ||
-        warn "  tree-sitter-cli — cargo install failed"
+
+    # ─── Intégration de NVM pour Node.js et tree-sitter-cli ─────────
+    info "  installing Node.js (via NVM) & tree-sitter-cli..."
+    export NVM_DIR="$HOME/.nvm"
+    if [ ! -s "$NVM_DIR/nvm.sh" ]; then
+      curl -s -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash &>/dev/null
+    fi
+
+    # On source manuellement NVM pour la session courante du script
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
+    # Installation de Node 24
+    nvm install 24 &>/dev/null
+
+    # Plus besoin de $SUDO car NVM est installé dans $HOME
+    if npm install -g tree-sitter-cli &>/dev/null; then
+      ok "  tree-sitter-cli (via nvm) ✔"
     else
-      warn "  tree-sitter-cli skipped (no npm or cargo found)"
+      warn "  tree-sitter-cli — npm install failed"
     fi
     ;;
   esac
 
   ok "Neovim dependencies done"
-  # Clipboard note: xclip/xsel require X11 forwarding on headless SSH servers.
-  # Neovim uses OSC52 as fallback — works natively over SSH in modern terminals.
 }
 
 _install_lazygit() {
@@ -408,18 +403,21 @@ _install_lazygit() {
   info "Installing lazygit..."
   case "$DISTRO_FAMILY" in
   arch) eval "$PKG_INSTALL lazygit" &>/dev/null ;;
-  fedora) eval "$PKG_INSTALL lazygit" &>/dev/null ;;
+  fedora)
+    $SUDO dnf copr enable -y dejan/lazygit &>/dev/null || true
+    eval "$PKG_INSTALL lazygit" &>/dev/null
+    ;;
   debian | *)
-    # No official Debian package — grab the latest release binary from GitHub
-    local lg_url
-    lg_url=$(curl -s https://api.github.com/repos/jesseduffield/lazygit/releases/latest |
-      grep "browser_download_url.*Linux_x86_64.tar.gz" | cut -d'"' -f4 | head -1)
-    if [ -n "$lg_url" ]; then
-      curl -fsSL "$lg_url" -o /tmp/lazygit.tar.gz &>/dev/null
+    local LAZYGIT_VERSION
+    # Correction: utilisation de grep -Po et || true pour ne pas casser set -e
+    LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" | grep -Po '"tag_name": *"v\K[^"]*' || true)
+
+    if [ -n "$LAZYGIT_VERSION" ]; then
+      curl -fsSL -o /tmp/lazygit.tar.gz "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz" &>/dev/null
       $SUDO tar -C /usr/local/bin -xzf /tmp/lazygit.tar.gz lazygit
       rm -f /tmp/lazygit.tar.gz
     else
-      warn "Could not download lazygit binary"
+      warn "Could not fetch lazygit version from GitHub API"
     fi
     ;;
   esac
@@ -431,21 +429,18 @@ _sync_neovim_config() {
   local nvim_dotfiles_dir="$HOME/.dotfiles-nvim"
   local nvim_repo="git@github.com:WillScarlettOhara/.dotfiles.git"
 
-  # If config already exists as a real directory, don't overwrite it
   if [ -d "$nvim_config_dir" ] && [ ! -L "$nvim_config_dir" ]; then
     info "Neovim config already present, skipping"
     return
   fi
 
-  # SSH key required to clone via git@
   if [ ! -f "$SSH_KEY_PATH" ]; then
-    warn "SSH key not found — neovim config skipped (rerun after Bitwarden setup)"
+    warn "SSH key not found — neovim config skipped"
     return
   fi
 
-  info "Cloning neovim config from .dotfiles (sparse checkout)..."
+  info "Cloning neovim config from .dotfiles..."
 
-  # Spin up a temporary ssh-agent for this clone
   local agent_pid
   eval "$(ssh-agent -s)" &>/dev/null
   agent_pid=$SSH_AGENT_PID
@@ -510,7 +505,6 @@ setup_dotfiles() {
 }
 
 _manual_link_dotfiles() {
-  # Repo stores 'zshrc' without the leading dot — link it to ~/.zshrc
   declare -A FILE_MAP=(
     ["zshrc"]=".zshrc"
     [".zshenv"]=".zshenv"
@@ -566,7 +560,7 @@ set_default_shell() {
 print_summary() {
   echo ""
   echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════════════════╗${RESET}"
-  echo -e "${BOLD}${GREEN}║            Bootstrap completed successfully!             ║${RESET}"
+  echo -e "${BOLD}${GREEN}║             Bootstrap completed successfully!            ║${RESET}"
   echo -e "${BOLD}${GREEN}╚══════════════════════════════════════════════════════════╝${RESET}"
   echo ""
   echo -e "  ${BOLD}Next steps:${RESET}"
@@ -645,7 +639,6 @@ run_interactive() {
 }
 
 # ─── ENTRY POINT ──────────────────────────────────────────────────────────────
-# Non-interactive mode when piped (curl | bash) → install everything
 if [ -t 0 ]; then
   run_interactive
 else
