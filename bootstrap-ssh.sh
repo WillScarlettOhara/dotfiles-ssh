@@ -714,6 +714,7 @@ run_interactive() {
     install_base_packages
     install_bitwarden_cli
     setup_ssh_keys
+    setup_ssh_daemon
     install_tools
     install_docker
     setup_dotfiles
@@ -765,6 +766,7 @@ else
   install_base_packages
   install_bitwarden_cli
   setup_ssh_keys
+  setup_ssh_daemon
   install_tools
   install_docker
   setup_dotfiles
