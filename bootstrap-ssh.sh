@@ -20,7 +20,6 @@ GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
-WHITE='\033[1;37m'
 DIM='\033[2m'
 
 # ─── UI HELPERS ───────────────────────────────────────────────────────────────
@@ -64,17 +63,14 @@ detect_distro() {
     DISTRO_FAMILY="arch"
     PKG_INSTALL="$SUDO pacman -S --noconfirm --needed"
     PKG_UPDATE="$SUDO pacman -Sy"
-    PKG_QUERY="pacman -Q"
   elif [[ "$DISTRO_ID" == "fedora" || "$DISTRO_LIKE" == *"fedora"* || "$DISTRO_ID" == "rhel" || "$DISTRO_ID" == "centos" ]]; then
     DISTRO_FAMILY="fedora"
     PKG_INSTALL="$SUDO dnf install -y"
     PKG_UPDATE="$SUDO dnf check-update || true"
-    PKG_QUERY="rpm -q"
   elif [[ "$DISTRO_ID" == "debian" || "$DISTRO_LIKE" == *"debian"* || "$DISTRO_ID" == "ubuntu" || "$DISTRO_LIKE" == *"ubuntu"* ]]; then
     DISTRO_FAMILY="debian"
     PKG_INSTALL="$SUDO apt-get install -y"
     PKG_UPDATE="$SUDO apt-get update -qq"
-    PKG_QUERY="dpkg -l"
   else
     DISTRO_FAMILY="unknown"
     warn "Unrecognized distribution: $DISTRO_ID. Some steps may be skipped."
@@ -284,7 +280,7 @@ _install_lsd() {
       local tmp_deb
       tmp_deb=$(mktemp --suffix=.deb)
       curl -fsSL "$lsd_url" -o "$tmp_deb" &>/dev/null
-      $SUDO dpkg -i "$tmp_deb" &>/dev/null
+      $SUDO dpkg -i "$tmp_deb" &>/dev/null || warn "lsd dpkg installation failed (skipped)"
       rm -f "$tmp_deb"
     else
       warn "Could not download lsd for Debian/Ubuntu"
@@ -358,43 +354,44 @@ _install_neovim_deps() {
     done
     if has cargo; then
       info "  installing tree-sitter-cli via cargo..."
-      cargo install tree-sitter-cli &>/dev/null && ok "  tree-sitter-cli ✔" || warn "  tree-sitter-cli — cargo install failed"
+      if cargo install tree-sitter-cli &>/dev/null; then ok "  tree-sitter-cli ✔"; else warn "  tree-sitter failed"; fi
     fi
     ;;
   debian | *)
-    for pkg in lua5.4 luarocks ripgrep; do
+    # Installation via les dépôts classiques
+    for pkg in lua5.4 luarocks ripgrep fd-find; do
       _pkg_install_verbose "$pkg"
     done
 
-    # ─── Récupération de fd direct via GitHub (au lieu de apt) ────────
-    info "  installing latest fd (sharkdp/fd)..."
-    local fd_url
-    fd_url=$(curl -s "https://api.github.com/repos/sharkdp/fd/releases/latest" | grep -Po '"browser_download_url": *"\K[^"]*fd_[0-9][^"]*amd64\.deb' | head -1 || true)
-    if [ -n "$fd_url" ]; then
-      local tmp_deb
-      tmp_deb=$(mktemp --suffix=.deb)
-      curl -fsSL "$fd_url" -o "$tmp_deb" &>/dev/null
-      $SUDO dpkg -i "$tmp_deb" &>/dev/null
-      rm -f "$tmp_deb"
-      ok "  fd ✔"
-    else
-      warn "  fd — download failed"
+    # ─── Création du lien symbolique pour fdfind ────────
+    if has fdfind && ! has fd; then
+      mkdir -p "$HOME/.local/bin"
+      ln -sfn "$(command -v fdfind)" "$HOME/.local/bin/fd"
+      # On s'assure que le PATH est à jour pour la session actuelle
+      [[ ":$PATH:" != *":$HOME/.local/bin:"* ]] && export PATH="$HOME/.local/bin:$PATH"
+      ok "  fd alias created ✔"
     fi
 
     # ─── Intégration de NVM pour Node.js et tree-sitter-cli ─────────
     info "  installing Node.js (via NVM) & tree-sitter-cli..."
     export NVM_DIR="$HOME/.nvm"
+
+    export NVM_DIR="$HOME/.nvm"
     if [ ! -s "$NVM_DIR/nvm.sh" ]; then
       curl -s -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash &>/dev/null
     fi
-
+    # shellcheck disable=SC1091
     [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-    nvm install 24 &>/dev/null
 
-    if npm install -g tree-sitter-cli &>/dev/null; then
-      ok "  tree-sitter-cli (via nvm) ✔"
+    if has nvm; then
+      nvm install 24 &>/dev/null
+      if npm install -g tree-sitter-cli &>/dev/null; then
+        ok "  tree-sitter-cli (via nvm) ✔"
+      else
+        warn "  tree-sitter-cli — npm install failed"
+      fi
     else
-      warn "  tree-sitter-cli — npm install failed"
+      warn "  nvm not found, skipping tree-sitter-cli"
     fi
     ;;
   esac
