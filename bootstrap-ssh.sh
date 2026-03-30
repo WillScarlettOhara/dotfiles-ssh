@@ -146,39 +146,52 @@ setup_ssh_keys() {
 
   if [[ "$bw_status" == "unauthenticated" ]]; then
     info "Bitwarden login required..."
-    bw login </dev/tty
+    # CAPTURER la session après login
+    BW_SESSION=$(bw login --raw 2>/dev/null) || {
+      error "Bitwarden login failed"
+      return 1
+    }
+    export BW_SESSION
   fi
 
-  export BW_SESSION
-  local attempts=0
-  while true; do
-    attempts=$((attempts + 1))
-    echo -e "\n  ${YELLOW}🔓${RESET} Vault locked. Enter your master password (attempt $attempts/3): \c"
-    read -s -r BW_PASS </dev/tty
-    echo ""
-    export BW_PASS
-    BW_SESSION=$(bw unlock --raw --passwordenv BW_PASS 2>/dev/null || true)
-    unset BW_PASS
+  # Si on est déjà unlock, BW_SESSION existe déjà, sinon on unlock
+  if [[ "$bw_status" == "locked" ]] || [[ -z "${BW_SESSION:-}" ]]; then
+    local attempts=0
+    while true; do
+      attempts=$((attempts + 1))
+      echo -e "\n  ${YELLOW}🔓${RESET} Vault locked. Enter your master password (attempt $attempts/3): \c"
+      # shellcheck disable=SC2034
+      read -s -r BW_PASS </dev/tty
+      echo ""
 
-    if [ -n "${BW_SESSION:-}" ]; then
-      ok "✅ Vault unlocked"
-      break
-    fi
+      # PAS d'export ici, on capture d'abord
+      BW_SESSION=$(bw unlock --raw --passwordenv BW_PASS 2>/dev/null) || true
+      unset BW_PASS
 
-    error "❌ Wrong password, try again."
-    if [ "$attempts" -ge 3 ]; then
-      warn "3 failed attempts — SSH key step skipped, bootstrap continues."
-      return 0
-    fi
-  done
+      if [ -n "${BW_SESSION:-}" ]; then
+        export BW_SESSION
+        ok "✅ Vault unlocked"
+        break
+      fi
+
+      error "❌ Wrong password, try again."
+      if [ "$attempts" -ge 3 ]; then
+        warn "3 failed attempts — SSH key step skipped, bootstrap continues."
+        return 0
+      fi
+    done
+  fi
 
   info "Syncing vault..."
-  bw sync &>/dev/null
+  # AJOUTER || true pour éviter que set -e ne tue le script
+  bw sync &>/dev/null || {
+    warn "bw sync failed, continuing anyway..."
+  }
 
   # ── Fetch SSH keys ──────────────────────────────────────────────────────────
   local private_key public_key
-  private_key=$(bw get item "$BW_ITEM_SSH_KEY" 2>/dev/null | jq -r '.sshKey.privateKey // empty')
-  public_key=$(bw get item "$BW_ITEM_SSH_KEY" 2>/dev/null | jq -r '.sshKey.publicKey  // empty')
+  private_key=$(bw get item "$BW_ITEM_SSH_KEY" 2>/dev/null | jq -r '.sshKey.privateKey // empty' || true)
+  public_key=$(bw get item "$BW_ITEM_SSH_KEY" 2>/dev/null | jq -r '.sshKey.publicKey  // empty' || true)
 
   if [ -n "$private_key" ]; then
     printf '%s\n' "$private_key" >"$SSH_KEY_PATH"
