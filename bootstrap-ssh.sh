@@ -165,19 +165,28 @@ setup_ssh_keys() {
     bw login </dev/tty
   fi
 
-  echo -e "\n  ${YELLOW}🔓${RESET} Entre ton mot de passe maître Bitwarden :"
-  read -s -r BW_PASS </dev/tty
-  echo ""
+  export BW_SESSION
+  local attempts=0
+  while true; do
+    attempts=$((attempts + 1))
+    echo -e "\n  ${YELLOW}🔓${RESET} Mot de passe maître Bitwarden (essai $attempts/3) :"
+    read -s -r BW_PASS </dev/tty
+    echo ""
+    export BW_PASS
+    BW_SESSION=$(bw unlock --raw --passwordenv BW_PASS 2>/dev/null)
+    unset BW_PASS
 
-  export BW_PASS BW_SESSION
-  BW_SESSION=$(bw unlock --raw --passwordenv BW_PASS 2>/dev/null)
-  unset BW_PASS
+    if [ -n "${BW_SESSION:-}" ]; then
+      ok "Bitwarden déverrouillé"
+      break
+    fi
 
-  if [ -z "${BW_SESSION:-}" ]; then
-    error "Échec du déverrouillage Bitwarden. Vérifie ton mot de passe maître."
-    warn "Étape clés SSH ignorée — le reste du bootstrap continue."
-    return 0
-  fi
+    error "Mot de passe incorrect."
+    if [ "$attempts" -ge 3 ]; then
+      warn "3 tentatives échouées — étape clés SSH ignorée, le bootstrap continue."
+      return 0
+    fi
+  done
 
   # Synchronisation du coffre
   info "Synchronisation du coffre..."
@@ -362,13 +371,51 @@ _install_neovim() {
 }
 
 _sync_neovim_config() {
-  # Copie la config neovim depuis l'hôte si elle existe via le dotfiles repo
-  # (sinon, rien — la config sera gérée par le dotfiles repo)
-  if [ -d "$DOTFILES_DIR/nvim" ]; then
-    mkdir -p "$HOME/.config"
-    ln -sfn "$DOTFILES_DIR/nvim" "$HOME/.config/nvim"
-    info "Config neovim liée depuis les dotfiles SSH"
+  local nvim_config_dir="$HOME/.config/nvim"
+  local nvim_dotfiles_dir="$HOME/.dotfiles-nvim"
+  local nvim_repo="git@github.com:WillScarlettOhara/.dotfiles.git"
+
+  # Si la config existe déjà et fonctionne, on met juste à jour
+  if [ -d "$nvim_config_dir" ] && [ ! -L "$nvim_config_dir" ]; then
+    info "Config neovim déjà présente, pas de remplacement automatique"
+    return
   fi
+
+  # On a besoin de la clé SSH pour cloner en git@
+  if [ ! -f "$SSH_KEY_PATH" ]; then
+    warn "Clé SSH absente — config neovim ignorée (relance après setup Bitwarden)"
+    return
+  fi
+
+  info "Clonage de la config neovim depuis .dotfiles..."
+
+  # ssh-agent éphémère pour ce clone
+  local agent_pid
+  eval "$(ssh-agent -s)" &>/dev/null
+  agent_pid=$SSH_AGENT_PID
+  ssh-add "$SSH_KEY_PATH" &>/dev/null
+
+  # Clone du dépôt principal (sparse : uniquement nvim/.config/nvim)
+  if [ -d "$nvim_dotfiles_dir" ]; then
+    git -C "$nvim_dotfiles_dir" pull --rebase --quiet 2>/dev/null || true
+  else
+    git clone --depth=1 --filter=blob:none --sparse \
+      "$nvim_repo" "$nvim_dotfiles_dir" &>/dev/null &&
+      git -C "$nvim_dotfiles_dir" sparse-checkout set nvim/.config/nvim &>/dev/null
+  fi
+
+  # Lien symbolique vers ~/.config/nvim
+  local nvim_src="$nvim_dotfiles_dir/nvim/.config/nvim"
+  if [ -d "$nvim_src" ]; then
+    mkdir -p "$HOME/.config"
+    ln -sfn "$nvim_src" "$nvim_config_dir"
+    ok "Config neovim liée → $nvim_config_dir"
+  else
+    warn "Dossier nvim/.config/nvim introuvable dans le dépôt .dotfiles"
+  fi
+
+  # Arrêt de l'agent éphémère
+  kill "$agent_pid" &>/dev/null || true
 }
 
 _install_zsh_plugins() {
