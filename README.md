@@ -6,24 +6,24 @@
 
 ```bash
 # Sur la machine distante :
-curl -fsSL https://raw.githubusercontent.com/TON_USER/dotfiles-ssh/main/bootstrap-ssh.sh | bash
+curl -fsSL https://raw.githubusercontent.com/WillScarlettOhara/dotfiles-ssh/main/bootstrap-ssh.sh | bash
 # — ou —
-bash <(curl -fsSL https://raw.githubusercontent.com/TON_USER/dotfiles-ssh/main/bootstrap-ssh.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/WillScarlettOhara/dotfiles-ssh/main/bootstrap-ssh.sh)
 ```
 
 ---
 
 ## Ce que fait le script
 
-| Étape | Description |
-|-------|-------------|
-| **1. Détection distro** | Arch · Fedora · Debian/Ubuntu |
-| **2. Paquets de base** | `curl git wget zsh build-essential …` |
-| **3. Bitwarden CLI** | Via `paru/yay` (Arch) ou `npm` (autres) |
-| **4. Clés SSH** | Récupérées depuis ton coffre Bitwarden (pièces jointes) |
-| **5. Outils** | `zoxide lsd fzf neovim zinit` |
-| **6. Dotfiles** | Clone ce dépôt + liens symboliques vers `~` |
-| **7. Shell** | zsh défini comme shell par défaut (`chsh`) |
+| Étape                   | Description                                             |
+| ----------------------- | ------------------------------------------------------- |
+| **1. Détection distro** | Arch · Fedora · Debian/Ubuntu                           |
+| **2. Paquets de base**  | `curl git wget zsh build-essential …`                   |
+| **3. Bitwarden CLI**    | Via `paru/yay` (Arch) ou `npm` (autres)                 |
+| **4. Clés SSH**         | Récupérées depuis ton coffre Bitwarden (pièces jointes) |
+| **5. Outils**           | `zoxide lsd fzf neovim zinit`                           |
+| **6. Dotfiles**         | Clone ce dépôt + liens symboliques vers `~`             |
+| **7. Shell**            | zsh défini comme shell par défaut (`chsh`)              |
 
 ---
 
@@ -46,6 +46,7 @@ dotfiles-ssh/
 Dans ton coffre Bitwarden, crée un **Login** nommé exactement `ssh-perso` (ou change `BW_ITEM_SSH_KEY` dans le script).
 
 Attache-y deux fichiers :
+
 - `id_ed25519` — ta clé privée
 - `id_ed25519.pub` — ta clé publique
 
@@ -71,10 +72,10 @@ SSH_KEY_PATH="$HOME/.ssh/id_ed25519"                       # Destination de la c
 
 ## Mode interactif vs pipe
 
-| Lancement | Comportement |
-|-----------|-------------|
+| Lancement               | Comportement                       |
+| ----------------------- | ---------------------------------- |
 | `bash bootstrap-ssh.sh` | Menu interactif (choix des étapes) |
-| `curl … \| bash` | Installation complète automatique |
+| `curl … \| bash`        | Installation complète automatique  |
 
 ---
 

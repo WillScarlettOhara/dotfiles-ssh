@@ -7,9 +7,9 @@
 set -euo pipefail
 
 # ─── CONFIGURATION ────────────────────────────────────────────────────────────
-DOTFILES_REPO="https://github.com/TON_USER/dotfiles-ssh"   # ← À changer
+DOTFILES_REPO="https://github.com/TON_USER/dotfiles-ssh" # ← À changer
 DOTFILES_DIR="$HOME/.dotfiles-ssh"
-BW_ITEM_SSH_KEY="ssh-perso"                                 # ← Nom de l'item Bitwarden contenant ta clé SSH
+BW_ITEM_SSH_KEY="ssh-perso" # ← Nom de l'item Bitwarden contenant ta clé SSH
 SSH_KEY_PATH="$HOME/.ssh/id_ed25519"
 
 # ─── COULEURS ─────────────────────────────────────────────────────────────────
@@ -24,11 +24,11 @@ WHITE='\033[1;37m'
 DIM='\033[2m'
 
 # ─── HELPERS UI ───────────────────────────────────────────────────────────────
-step()    { echo -e "\n${BOLD}${BLUE}══>${RESET}${BOLD} $1${RESET}"; }
-ok()      { echo -e "  ${GREEN}✔${RESET}  $1"; }
-warn()    { echo -e "  ${YELLOW}⚠${RESET}   $1"; }
-error()   { echo -e "  ${RED}✘${RESET}  $1" >&2; }
-info()    { echo -e "  ${DIM}→${RESET}  $1"; }
+step() { echo -e "\n${BOLD}${BLUE}══>${RESET}${BOLD} $1${RESET}"; }
+ok() { echo -e "  ${GREEN}✔${RESET}  $1"; }
+warn() { echo -e "  ${YELLOW}⚠${RESET}   $1"; }
+error() { echo -e "  ${RED}✘${RESET}  $1" >&2; }
+info() { echo -e "  ${DIM}→${RESET}  $1"; }
 
 banner() {
   echo -e "${CYAN}"
@@ -53,7 +53,8 @@ detect_distro() {
   if [ -f /etc/os-release ]; then
     source /etc/os-release
     DISTRO_ID="${ID,,}"
-    DISTRO_LIKE="${ID_LIKE,,}"
+    DISTRO_LIKE="${ID_LIKE:-}"
+    DISTRO_LIKE="${DISTRO_LIKE,,}"
   else
     DISTRO_ID="unknown"
     DISTRO_LIKE=""
@@ -95,18 +96,18 @@ install_base_packages() {
   local common_deps=(curl git wget unzip tar)
 
   case "$DISTRO_FAMILY" in
-    debian)
-      local extra=(zsh build-essential ca-certificates gnupg apt-transport-https)
-      ;;
-    fedora)
-      local extra=(zsh gcc make ca-certificates gnupg2)
-      ;;
-    arch)
-      local extra=(zsh base-devel ca-certificates gnupg)
-      ;;
-    *)
-      local extra=()
-      ;;
+  debian)
+    local extra=(zsh build-essential ca-certificates gnupg apt-transport-https)
+    ;;
+  fedora)
+    local extra=(zsh gcc make ca-certificates gnupg2)
+    ;;
+  arch)
+    local extra=(zsh base-devel ca-certificates gnupg)
+    ;;
+  *)
+    local extra=()
+    ;;
   esac
 
   eval "$PKG_INSTALL ${common_deps[*]} ${extra[*]}" &>/dev/null
@@ -180,15 +181,15 @@ setup_ssh_keys() {
   # OU un Login/Note avec les clés en pièces jointes (fallback)
   local private_key public_key
 
-  private_key=$(bw get item "$BW_ITEM_SSH_KEY" --session "$BW_SESSION" 2>/dev/null \
-    | jq -r '.sshKey.privateKey // empty')
-  public_key=$(bw get item "$BW_ITEM_SSH_KEY" --session "$BW_SESSION" 2>/dev/null \
-    | jq -r '.sshKey.publicKey // empty')
+  private_key=$(bw get item "$BW_ITEM_SSH_KEY" --session "$BW_SESSION" 2>/dev/null |
+    jq -r '.sshKey.privateKey // empty')
+  public_key=$(bw get item "$BW_ITEM_SSH_KEY" --session "$BW_SESSION" 2>/dev/null |
+    jq -r '.sshKey.publicKey // empty')
 
   if [ -n "$private_key" ]; then
     # ── Méthode 1 : item SSH Key natif Bitwarden ────────────────────────────
-    printf '%s\n' "$private_key" > "$SSH_KEY_PATH"
-    printf '%s\n' "$public_key"  > "${SSH_KEY_PATH}.pub"
+    printf '%s\n' "$private_key" >"$SSH_KEY_PATH"
+    printf '%s\n' "$public_key" >"${SSH_KEY_PATH}.pub"
     chmod 600 "$SSH_KEY_PATH"
     chmod 644 "${SSH_KEY_PATH}.pub"
     ok "Clé SSH (sshKey) déployée → $SSH_KEY_PATH"
@@ -196,8 +197,8 @@ setup_ssh_keys() {
     # ── Méthode 2 : pièces jointes (id_ed25519 + id_ed25519.pub) ───────────
     info "Pas de champ sshKey trouvé — recherche dans les pièces jointes..."
     local item_id
-    item_id=$(bw get item "$BW_ITEM_SSH_KEY" --session "$BW_SESSION" 2>/dev/null \
-      | jq -r '.id // empty')
+    item_id=$(bw get item "$BW_ITEM_SSH_KEY" --session "$BW_SESSION" 2>/dev/null |
+      jq -r '.id // empty')
 
     if [ -z "$item_id" ]; then
       error "Item Bitwarden '${BW_ITEM_SSH_KEY}' introuvable. Vérifie BW_ITEM_SSH_KEY."
@@ -207,11 +208,11 @@ setup_ssh_keys() {
 
     local tmp_dir
     tmp_dir=$(mktemp -d)
-    bw get attachment id_ed25519     --itemid "$item_id" --output "$tmp_dir/" --session "$BW_SESSION" &>/dev/null || true
+    bw get attachment id_ed25519 --itemid "$item_id" --output "$tmp_dir/" --session "$BW_SESSION" &>/dev/null || true
     bw get attachment id_ed25519.pub --itemid "$item_id" --output "$tmp_dir/" --session "$BW_SESSION" &>/dev/null || true
 
     if [ -f "$tmp_dir/id_ed25519" ]; then
-      cp "$tmp_dir/id_ed25519"     "$SSH_KEY_PATH"
+      cp "$tmp_dir/id_ed25519" "$SSH_KEY_PATH"
       cp "$tmp_dir/id_ed25519.pub" "${SSH_KEY_PATH}.pub" 2>/dev/null || true
       chmod 600 "$SSH_KEY_PATH"
       chmod 644 "${SSH_KEY_PATH}.pub" 2>/dev/null || true
@@ -225,7 +226,7 @@ setup_ssh_keys() {
 
   # ── known_hosts : uniquement GitHub ─────────────────────────────────────────
   info "Ajout de github.com aux known_hosts..."
-  ssh-keyscan github.com >> "$HOME/.ssh/known_hosts" 2>/dev/null
+  ssh-keyscan github.com >>"$HOME/.ssh/known_hosts" 2>/dev/null
   chmod 644 "$HOME/.ssh/known_hosts"
   ok "known_hosts mis à jour"
 
@@ -257,26 +258,26 @@ install_docker() {
   fi
 
   case "$DISTRO_FAMILY" in
-    arch)
-      # Sur Arch, docker est dans les dépôts officiels
-      eval "$PKG_INSTALL docker docker-compose" &>/dev/null
-      sudo systemctl enable --now docker &>/dev/null
-      ;;
-    debian|fedora)
-      # Script officiel Docker — universel Debian/Ubuntu/Fedora/CentOS
-      info "Téléchargement du script d'installation officiel Docker..."
-      curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
-      info "Lancement de l'installation Docker..."
-      sudo sh /tmp/get-docker.sh &>/dev/null
-      rm -f /tmp/get-docker.sh
-      sudo systemctl enable --now docker &>/dev/null
-      ;;
-    *)
-      info "Distribution inconnue — tentative avec le script Docker officiel..."
-      curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
-      sudo sh /tmp/get-docker.sh &>/dev/null
-      rm -f /tmp/get-docker.sh
-      ;;
+  arch)
+    # Sur Arch, docker est dans les dépôts officiels
+    eval "$PKG_INSTALL docker docker-compose" &>/dev/null
+    sudo systemctl enable --now docker &>/dev/null
+    ;;
+  debian | fedora)
+    # Script officiel Docker — universel Debian/Ubuntu/Fedora/CentOS
+    info "Téléchargement du script d'installation officiel Docker..."
+    curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+    info "Lancement de l'installation Docker..."
+    sudo sh /tmp/get-docker.sh &>/dev/null
+    rm -f /tmp/get-docker.sh
+    sudo systemctl enable --now docker &>/dev/null
+    ;;
+  *)
+    info "Distribution inconnue — tentative avec le script Docker officiel..."
+    curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+    sudo sh /tmp/get-docker.sh &>/dev/null
+    rm -f /tmp/get-docker.sh
+    ;;
   esac
 
   # Ajout de l'utilisateur au groupe docker (évite sudo à chaque commande)
@@ -290,59 +291,62 @@ install_docker() {
 
 _install_zoxide() {
   if has zoxide; then
-    ok "zoxide déjà présent"; return
+    ok "zoxide déjà présent"
+    return
   fi
   info "Installation de zoxide..."
   case "$DISTRO_FAMILY" in
-    arch)    eval "$PKG_INSTALL zoxide" &>/dev/null ;;
-    fedora)  eval "$PKG_INSTALL zoxide" &>/dev/null ;;
-    debian)
-      # Pas dans les dépôts Debian stable, on utilise le binaire officiel
-      curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash &>/dev/null
-      ;;
-    *)
-      curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash &>/dev/null
-      ;;
+  arch) eval "$PKG_INSTALL zoxide" &>/dev/null ;;
+  fedora) eval "$PKG_INSTALL zoxide" &>/dev/null ;;
+  debian)
+    # Pas dans les dépôts Debian stable, on utilise le binaire officiel
+    curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash &>/dev/null
+    ;;
+  *)
+    curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash &>/dev/null
+    ;;
   esac
   ok "zoxide installé"
 }
 
 _install_lsd() {
   if has lsd; then
-    ok "lsd déjà présent"; return
+    ok "lsd déjà présent"
+    return
   fi
   info "Installation de lsd..."
   case "$DISTRO_FAMILY" in
-    arch)   eval "$PKG_INSTALL lsd" &>/dev/null ;;
-    fedora) eval "$PKG_INSTALL lsd" &>/dev/null ;;
-    debian)
-      # Récupère le dernier .deb depuis GitHub Releases
-      local lsd_url
-      lsd_url=$(curl -s https://api.github.com/repos/lsd-rs/lsd/releases/latest \
-        | grep "browser_download_url.*amd64.deb" | cut -d'"' -f4 | head -1)
-      if [ -n "$lsd_url" ]; then
-        local tmp_deb
-        tmp_deb=$(mktemp --suffix=.deb)
-        curl -fsSL "$lsd_url" -o "$tmp_deb" &>/dev/null
-        sudo dpkg -i "$tmp_deb" &>/dev/null
-        rm -f "$tmp_deb"
-      else
-        warn "Impossible de télécharger lsd pour Debian"
-      fi
-      ;;
+  arch) eval "$PKG_INSTALL lsd" &>/dev/null ;;
+  fedora) eval "$PKG_INSTALL lsd" &>/dev/null ;;
+  debian)
+    # Récupère le dernier .deb depuis GitHub Releases
+    local lsd_url
+    lsd_url=$(curl -s https://api.github.com/repos/lsd-rs/lsd/releases/latest |
+      grep "browser_download_url.*amd64.deb" | cut -d'"' -f4 | head -1)
+    if [ -n "$lsd_url" ]; then
+      local tmp_deb
+      tmp_deb=$(mktemp --suffix=.deb)
+      curl -fsSL "$lsd_url" -o "$tmp_deb" &>/dev/null
+      sudo dpkg -i "$tmp_deb" &>/dev/null
+      rm -f "$tmp_deb"
+    else
+      warn "Impossible de télécharger lsd pour Debian"
+    fi
+    ;;
   esac
   ok "lsd installé"
 }
 
 _install_fzf() {
   if has fzf; then
-    ok "fzf déjà présent"; return
+    ok "fzf déjà présent"
+    return
   fi
   info "Installation de fzf..."
   case "$DISTRO_FAMILY" in
-    arch)   eval "$PKG_INSTALL fzf" &>/dev/null ;;
-    fedora) eval "$PKG_INSTALL fzf" &>/dev/null ;;
-    debian) eval "$PKG_INSTALL fzf" &>/dev/null ;;
+  arch) eval "$PKG_INSTALL fzf" &>/dev/null ;;
+  fedora) eval "$PKG_INSTALL fzf" &>/dev/null ;;
+  debian) eval "$PKG_INSTALL fzf" &>/dev/null ;;
   esac
   ok "fzf installé"
 }
@@ -355,19 +359,19 @@ _install_neovim() {
   fi
   info "Installation de neovim..."
   case "$DISTRO_FAMILY" in
-    arch)
-      eval "$PKG_INSTALL neovim" &>/dev/null
-      ;;
-    fedora)
-      eval "$PKG_INSTALL neovim" &>/dev/null
-      ;;
-    debian)
-      # Les dépôts Debian peuvent avoir une vieille version — on prend l'AppImage officielle
-      local nvim_url="https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.appimage"
-      curl -fsSLo "$HOME/.local/bin/nvim" "$nvim_url" &>/dev/null
-      chmod +x "$HOME/.local/bin/nvim"
-      mkdir -p "$HOME/.local/bin"
-      ;;
+  arch)
+    eval "$PKG_INSTALL neovim" &>/dev/null
+    ;;
+  fedora)
+    eval "$PKG_INSTALL neovim" &>/dev/null
+    ;;
+  debian)
+    # Les dépôts Debian peuvent avoir une vieille version — on prend l'AppImage officielle
+    local nvim_url="https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.appimage"
+    curl -fsSLo "$HOME/.local/bin/nvim" "$nvim_url" &>/dev/null
+    chmod +x "$HOME/.local/bin/nvim"
+    mkdir -p "$HOME/.local/bin"
+    ;;
   esac
   _sync_neovim_config
   ok "neovim installé"
@@ -516,48 +520,48 @@ run_interactive() {
   choice="${choice:-1}"
 
   case "$choice" in
-    1)
-      install_base_packages
-      install_bitwarden_cli
-      setup_ssh_keys
-      install_tools
-      install_docker
-      setup_dotfiles
-      set_default_shell
-      ;;
-    2)
-      install_base_packages
-      install_tools
-      install_docker
-      setup_dotfiles
-      set_default_shell
-      ;;
-    3)
-      install_base_packages
-      install_bitwarden_cli
-      setup_ssh_keys
-      ;;
-    4)
-      setup_dotfiles
-      ;;
-    5)
-      detect_distro 2>/dev/null || true
-      install_docker
-      ;;
-    q|Q)
-      echo "Au revoir !"
-      exit 0
-      ;;
-    *)
-      warn "Choix invalide, installation complète par défaut"
-      install_base_packages
-      install_bitwarden_cli
-      setup_ssh_keys
-      install_tools
-      install_docker
-      setup_dotfiles
-      set_default_shell
-      ;;
+  1)
+    install_base_packages
+    install_bitwarden_cli
+    setup_ssh_keys
+    install_tools
+    install_docker
+    setup_dotfiles
+    set_default_shell
+    ;;
+  2)
+    install_base_packages
+    install_tools
+    install_docker
+    setup_dotfiles
+    set_default_shell
+    ;;
+  3)
+    install_base_packages
+    install_bitwarden_cli
+    setup_ssh_keys
+    ;;
+  4)
+    setup_dotfiles
+    ;;
+  5)
+    detect_distro 2>/dev/null || true
+    install_docker
+    ;;
+  q | Q)
+    echo "Au revoir !"
+    exit 0
+    ;;
+  *)
+    warn "Choix invalide, installation complète par défaut"
+    install_base_packages
+    install_bitwarden_cli
+    setup_ssh_keys
+    install_tools
+    install_docker
+    setup_dotfiles
+    set_default_shell
+    ;;
   esac
 
   print_summary
