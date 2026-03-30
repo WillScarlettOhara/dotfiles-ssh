@@ -341,11 +341,12 @@ _install_neovim() {
     eval "$PKG_INSTALL neovim" &>/dev/null
     ;;
   debian)
-    # Les dépôts Debian peuvent avoir une vieille version — on prend l'AppImage officielle
-    local nvim_url="https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.appimage"
-    curl -fsSLo "$HOME/.local/bin/nvim" "$nvim_url" &>/dev/null
-    chmod +x "$HOME/.local/bin/nvim"
-    mkdir -p "$HOME/.local/bin"
+    curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.tar.gz &>/dev/null
+    $SUDO rm -rf /opt/nvim-linux-x86_64
+    $SUDO tar -C /opt -xzf nvim-linux-x86_64.tar.gz
+    rm -f nvim-linux-x86_64.tar.gz
+    # Lien symbolique pour l'avoir dans le PATH standard
+    $SUDO ln -sfn /opt/nvim-linux-x86_64/bin/nvim /usr/local/bin/nvim
     ;;
   esac
   _sync_neovim_config
