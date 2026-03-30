@@ -142,56 +142,48 @@ setup_ssh_keys() {
 
   # ── Login / Unlock ──────────────────────────────────────────────────────────
   local bw_status
-  bw_status=$(bw status 2>/dev/null | jq -r '.status' 2>/dev/null || echo "error")
+  # Masque le warning Node.js avec NODE_NO_WARNINGS=1
+  bw_status=$(NODE_NO_WARNINGS=1 bw status 2>/dev/null | jq -r '.status' 2>/dev/null || echo "error")
 
   if [[ "$bw_status" == "unauthenticated" ]]; then
     info "Bitwarden login required..."
-    # CAPTURER la session après login
-    BW_SESSION=$(bw login --raw 2>/dev/null) || {
-      error "Bitwarden login failed"
-      return 1
-    }
-    export BW_SESSION
+    # On reprend ta méthode interactive qui fonctionne
+    NODE_NO_WARNINGS=1 bw login </dev/tty
   fi
 
-  # Si on est déjà unlock, BW_SESSION existe déjà, sinon on unlock
-  if [[ "$bw_status" == "locked" ]] || [[ -z "${BW_SESSION:-}" ]]; then
-    local attempts=0
-    while true; do
-      attempts=$((attempts + 1))
-      echo -e "\n  ${YELLOW}🔓${RESET} Vault locked. Enter your master password (attempt $attempts/3): \c"
-      # shellcheck disable=SC2034
-      read -s -r BW_PASS </dev/tty
-      echo ""
+  export BW_SESSION
+  local attempts=0
+  while true; do
+    attempts=$((attempts + 1))
+    echo -e "\n  ${YELLOW}🔓${RESET} Vault locked. Enter your master password (attempt $attempts/3): \c"
+    read -s -r BW_PASS </dev/tty
+    echo ""
 
-      # PAS d'export ici, on capture d'abord
-      BW_SESSION=$(bw unlock --raw --passwordenv BW_PASS 2>/dev/null) || true
-      unset BW_PASS
+    export BW_PASS
+    # On capture l'unlock avec le || true pour éviter le crash
+    BW_SESSION=$(NODE_NO_WARNINGS=1 bw unlock --raw --passwordenv BW_PASS 2>/dev/null || true)
+    unset BW_PASS
 
-      if [ -n "${BW_SESSION:-}" ]; then
-        export BW_SESSION
-        ok "✅ Vault unlocked"
-        break
-      fi
+    if [ -n "${BW_SESSION:-}" ]; then
+      ok "✅ Vault unlocked"
+      break
+    fi
 
-      error "❌ Wrong password, try again."
-      if [ "$attempts" -ge 3 ]; then
-        warn "3 failed attempts — SSH key step skipped, bootstrap continues."
-        return 0
-      fi
-    done
-  fi
+    error "❌ Wrong password, try again."
+    if [ "$attempts" -ge 3 ]; then
+      warn "3 failed attempts — SSH key step skipped, bootstrap continues."
+      return 0
+    fi
+  done
 
   info "Syncing vault..."
-  # AJOUTER || true pour éviter que set -e ne tue le script
-  bw sync &>/dev/null || {
-    warn "bw sync failed, continuing anyway..."
-  }
+  NODE_NO_WARNINGS=1 bw sync &>/dev/null || warn "bw sync failed, continuing anyway..."
 
   # ── Fetch SSH keys ──────────────────────────────────────────────────────────
   local private_key public_key
-  private_key=$(bw get item "$BW_ITEM_SSH_KEY" 2>/dev/null | jq -r '.sshKey.privateKey // empty' || true)
-  public_key=$(bw get item "$BW_ITEM_SSH_KEY" 2>/dev/null | jq -r '.sshKey.publicKey  // empty' || true)
+  # || true empêche set -e de tuer le script si la clé n'existe pas
+  private_key=$(NODE_NO_WARNINGS=1 bw get item "$BW_ITEM_SSH_KEY" 2>/dev/null | jq -r '.sshKey.privateKey // empty' || true)
+  public_key=$(NODE_NO_WARNINGS=1 bw get item "$BW_ITEM_SSH_KEY" 2>/dev/null | jq -r '.sshKey.publicKey  // empty' || true)
 
   if [ -n "$private_key" ]; then
     printf '%s\n' "$private_key" >"$SSH_KEY_PATH"
@@ -209,7 +201,7 @@ setup_ssh_keys() {
   chmod 644 "$HOME/.ssh/known_hosts"
   ok "known_hosts updated"
 
-  bw lock &>/dev/null || true
+  NODE_NO_WARNINGS=1 bw lock &>/dev/null || true
   unset BW_SESSION
 }
 
