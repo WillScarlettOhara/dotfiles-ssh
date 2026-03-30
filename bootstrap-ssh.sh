@@ -641,9 +641,19 @@ Subsystem sftp /usr/lib/ssh/sftp-server
     warn "No public key found to add to authorized_keys!"
   fi
 
-  info "🔄 Restarting SSH service..."
-  $SUDO systemctl enable --now sshd &>/dev/null || $SUDO systemctl enable --now ssh &>/dev/null
-  ok "🔒 SSH daemon secured (key-only access enabled)"
+  # Use 'reload' instead of 'restart' — reload sends SIGHUP to apply the new
+  # config without dropping active SSH connections (including this very session).
+  info "🔄 Reloading SSH service (config applied without dropping connections)..."
+  if $SUDO systemctl reload sshd &>/dev/null ||
+    $SUDO systemctl reload ssh &>/dev/null; then
+    ok "🔒 SSH daemon secured — new config applied (key-only access enabled)"
+  else
+    # Service not yet running: start it for the first time
+    $SUDO systemctl enable --now sshd &>/dev/null ||
+      $SUDO systemctl enable --now ssh &>/dev/null ||
+      warn "Could not start SSH service"
+    ok "🔒 SSH daemon started and secured"
+  fi
 }
 
 # ─── SUMMARY ──────────────────────────────────────────────────────────────────
@@ -657,10 +667,6 @@ print_summary() {
   echo -e "  ${CYAN}1.${RESET} 🐚 Run ${BOLD}zsh${RESET} or open a new SSH session"
   echo -e "  ${CYAN}2.${RESET} 🐳 Reconnect to apply docker group membership"
   echo -e "  ${CYAN}3.${RESET} 📝 Edit ${BOLD}~/.dotfiles-ssh/zshrc${RESET} to customize"
-  echo ""
-  echo -e "  ${YELLOW}📋 Clipboard over SSH:${RESET}"
-  echo -e "  ${DIM}xclip/xsel don't work on headless servers. Enable OSC 52 in your Neovim config:${RESET}"
-  echo -e "  ${BOLD}vim.g.clipboard = { name='OSC 52', copy={['+']=require('vim.ui.clipboard.osc52').copy('+'), ...} }${RESET}"
   echo ""
   echo -e "  ${DIM}Dotfiles : $DOTFILES_DIR${RESET}"
   echo -e "  ${DIM}Bitwarden session : closed${RESET}"
