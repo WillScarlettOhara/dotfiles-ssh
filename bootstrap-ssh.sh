@@ -222,8 +222,8 @@ setup_ssh_keys() {
   # ── Fetch SSH keys ──────────────────────────────────────────────────────────
   local private_key public_key
   # || true empêche set -e de tuer le script si la clé n'existe pas
-  private_key=$(bw get item "$BW_ITEM_SSH_KEY" 2>/dev/null | jq -r '.sshKey.privateKey // empty' || true)
-  public_key=$(bw get item "$BW_ITEM_SSH_KEY" 2>/dev/null | jq -r '.sshKey.publicKey  // empty' || true)
+  private_key=$(NODE_NO_WARNINGS=1 bw get item "$BW_ITEM_SSH_KEY" 2>/dev/null | jq -r '.sshKey.privateKey // empty' || true)
+  public_key=$(NODE_NO_WARNINGS=1 bw get item "$BW_ITEM_SSH_KEY" 2>/dev/null | jq -r '.sshKey.publicKey  // empty' || true)
 
   if [ -n "$private_key" ]; then
     printf '%s\n' "$private_key" >"$SSH_KEY_PATH"
