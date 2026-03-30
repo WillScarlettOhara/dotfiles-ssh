@@ -477,38 +477,49 @@ _sync_neovim_config() {
   local nvim_dotfiles_dir="$HOME/.dotfiles-nvim"
   local nvim_repo="git@github.com:WillScarlettOhara/.dotfiles.git"
 
-  if [ -d "$nvim_config_dir" ] && [ ! -L "$nvim_config_dir" ]; then
-    info "Neovim config already present, skipping"
-    return
-  fi
-
+  # 1. Vérifier la clé SSH (indispensable pour git@github.com)
   if [ ! -f "$SSH_KEY_PATH" ]; then
     warn "SSH key not found — neovim config skipped"
     return
   fi
 
-  info "Cloning neovim config from .dotfiles..."
+  info "Syncing neovim config from .dotfiles..."
 
+  # Lancer l'agent SSH pour la durée de la synchro
   local agent_pid
   eval "$(ssh-agent -s)" &>/dev/null
   agent_pid=$SSH_AGENT_PID
   ssh-add "$SSH_KEY_PATH" &>/dev/null
 
   if [ -d "$nvim_dotfiles_dir" ]; then
-    git -C "$nvim_dotfiles_dir" pull --rebase --quiet 2>/dev/null || true
+    info "  Updating local repo..."
+    # On force le pull pour écraser les changements locaux éventuels
+    git -C "$nvim_dotfiles_dir" fetch origin master &>/dev/null
+    git -C "$nvim_dotfiles_dir" reset --hard origin/master &>/dev/null
   else
-    git clone --depth=1 --filter=blob:none --sparse \
-      "$nvim_repo" "$nvim_dotfiles_dir" &>/dev/null &&
-      git -C "$nvim_dotfiles_dir" sparse-checkout set nvim/.config/nvim &>/dev/null
+    info "  Cloning repo (sparse)..."
+    git clone --depth=1 --filter=blob:none --sparse --branch master \
+      "$nvim_repo" "$nvim_dotfiles_dir" &>/dev/null
+    git -C "$nvim_dotfiles_dir" sparse-checkout set nvim/.config/nvim &>/dev/null
   fi
 
+  # 2. Gestion du lien symbolique
   local nvim_src="$nvim_dotfiles_dir/nvim/.config/nvim"
   if [ -d "$nvim_src" ]; then
     mkdir -p "$HOME/.config"
+    # Supprimer l'ancien lien ou dossier s'il existe et n'est pas correct
+    [ -e "$nvim_config_dir" ] && [ ! -L "$nvim_config_dir" ] && mv "$nvim_config_dir" "${nvim_config_dir}.bak"
+
     ln -sfn "$nvim_src" "$nvim_config_dir"
     ok "Neovim config linked → $nvim_config_dir"
   else
-    warn "nvim/.config/nvim not found in .dotfiles repo"
+    error "nvim/.config/nvim not found in repo! Check your folder structure."
+  fi
+
+  # 3. Forcer la mise à jour des plugins de Neovim (Lazy.nvim)
+  if has nvim; then
+    info "  Updating Neovim plugins (headless)..."
+    nvim --headless "+Lazy! sync" +qa &>/dev/null || true
   fi
 
   kill "$agent_pid" &>/dev/null || true
