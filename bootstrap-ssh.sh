@@ -327,12 +327,21 @@ _install_fzf() {
 }
 
 _install_neovim() {
-  if has nvim; then
+  # Vérifie que nvim existe ET fonctionne réellement (AppImage sans FUSE = cassé)
+  if has nvim && nvim --version &>/dev/null; then
     ok "neovim déjà présent ($(nvim --version | head -1))"
     _sync_neovim_config
     return
   fi
-  info "Installation de neovim..."
+
+  if has nvim; then
+    warn "neovim trouvé mais non fonctionnel (AppImage sans FUSE ?) — réinstallation..."
+    $SUDO rm -f "$(command -v nvim)" 2>/dev/null || true
+    $SUDO rm -f /usr/local/bin/nvim 2>/dev/null || true
+    $SUDO rm -rf /opt/nvim-linux-x86_64 2>/dev/null || true
+  fi
+
+  info "Installation de neovim (tar.gz officiel)..."
   case "$DISTRO_FAMILY" in
   arch)
     eval "$PKG_INSTALL neovim" &>/dev/null
@@ -340,12 +349,11 @@ _install_neovim() {
   fedora)
     eval "$PKG_INSTALL neovim" &>/dev/null
     ;;
-  debian)
+  debian | *)
     curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.tar.gz &>/dev/null
     $SUDO rm -rf /opt/nvim-linux-x86_64
     $SUDO tar -C /opt -xzf nvim-linux-x86_64.tar.gz
     rm -f nvim-linux-x86_64.tar.gz
-    # Lien symbolique pour l'avoir dans le PATH standard
     $SUDO ln -sfn /opt/nvim-linux-x86_64/bin/nvim /usr/local/bin/nvim
     ;;
   esac
