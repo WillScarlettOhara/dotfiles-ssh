@@ -53,7 +53,7 @@ detect_distro() {
   if [ -f /etc/os-release ]; then
     source /etc/os-release
     DISTRO_ID="${ID,,}"
-    DISTRO_LIKE="${ID_LIKE:-}"
+    DISTRO_LIKE="${ID_LIKE:-}" # ID_LIKE est optionnel, valeur vide par défaut
     DISTRO_LIKE="${DISTRO_LIKE,,}"
   else
     DISTRO_ID="unknown"
@@ -62,18 +62,18 @@ detect_distro() {
 
   if [[ "$DISTRO_ID" == "arch" || "$DISTRO_LIKE" == *"arch"* ]]; then
     DISTRO_FAMILY="arch"
-    PKG_INSTALL="sudo pacman -S --noconfirm --needed"
-    PKG_UPDATE="sudo pacman -Sy"
+    PKG_INSTALL="$SUDO pacman -S --noconfirm --needed"
+    PKG_UPDATE="$SUDO pacman -Sy"
     PKG_QUERY="pacman -Q"
   elif [[ "$DISTRO_ID" == "fedora" || "$DISTRO_LIKE" == *"fedora"* || "$DISTRO_ID" == "rhel" || "$DISTRO_ID" == "centos" ]]; then
     DISTRO_FAMILY="fedora"
-    PKG_INSTALL="sudo dnf install -y"
-    PKG_UPDATE="sudo dnf check-update || true"
+    PKG_INSTALL="$SUDO dnf install -y"
+    PKG_UPDATE="$SUDO dnf check-update || true"
     PKG_QUERY="rpm -q"
   elif [[ "$DISTRO_ID" == "debian" || "$DISTRO_LIKE" == *"debian"* || "$DISTRO_ID" == "ubuntu" || "$DISTRO_LIKE" == *"ubuntu"* ]]; then
     DISTRO_FAMILY="debian"
-    PKG_INSTALL="sudo apt-get install -y"
-    PKG_UPDATE="sudo apt-get update -qq"
+    PKG_INSTALL="$SUDO apt-get install -y"
+    PKG_UPDATE="$SUDO apt-get update -qq"
     PKG_QUERY="dpkg -l"
   else
     DISTRO_FAMILY="unknown"
@@ -86,11 +86,17 @@ detect_distro() {
 # ─── VÉRIFICATION COMMANDE ────────────────────────────────────────────────────
 has() { command -v "$1" &>/dev/null; }
 
+# Root n'a pas besoin de $SUDO (et $SUDO n'est souvent pas installé sur serveur)
+if [ "$EUID" -eq 0 ]; then SUDO=""; else SUDO="sudo"; fi
+
 # ─── ÉTAPE 1 : PAQUETS DE BASE ────────────────────────────────────────────────
 install_base_packages() {
   step "Installation des paquets de base"
   info "Mise à jour des dépôts..."
-  eval "$PKG_UPDATE" &>/dev/null
+  eval "$PKG_UPDATE" &>/dev/null || {
+    error "Échec de la mise à jour des dépôts."
+    return 1
+  }
 
   # Liste commune
   local common_deps=(curl git wget unzip tar)
@@ -137,7 +143,7 @@ install_bitwarden_cli() {
   eval "$PKG_INSTALL wget unzip jq" &>/dev/null
   wget -qO /tmp/bw.zip "https://vault.bitwarden.com/download/?app=cli&platform=linux"
   unzip -q /tmp/bw.zip -d /tmp/bw_extract
-  sudo install -m 755 /tmp/bw_extract/bw /usr/local/bin/bw
+  $SUDO install -m 755 /tmp/bw_extract/bw /usr/local/bin/bw
   rm -rf /tmp/bw.zip /tmp/bw_extract
 
   ok "Bitwarden CLI installé ($(bw --version))"
@@ -261,28 +267,28 @@ install_docker() {
   arch)
     # Sur Arch, docker est dans les dépôts officiels
     eval "$PKG_INSTALL docker docker-compose" &>/dev/null
-    sudo systemctl enable --now docker &>/dev/null
+    $SUDO systemctl enable --now docker &>/dev/null
     ;;
   debian | fedora)
     # Script officiel Docker — universel Debian/Ubuntu/Fedora/CentOS
     info "Téléchargement du script d'installation officiel Docker..."
     curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
     info "Lancement de l'installation Docker..."
-    sudo sh /tmp/get-docker.sh &>/dev/null
+    $SUDO sh /tmp/get-docker.sh &>/dev/null
     rm -f /tmp/get-docker.sh
-    sudo systemctl enable --now docker &>/dev/null
+    $SUDO systemctl enable --now docker &>/dev/null
     ;;
   *)
     info "Distribution inconnue — tentative avec le script Docker officiel..."
     curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
-    sudo sh /tmp/get-docker.sh &>/dev/null
+    $SUDO sh /tmp/get-docker.sh &>/dev/null
     rm -f /tmp/get-docker.sh
     ;;
   esac
 
-  # Ajout de l'utilisateur au groupe docker (évite sudo à chaque commande)
+  # Ajout de l'utilisateur au groupe docker (évite $SUDO à chaque commande)
   if getent group docker &>/dev/null; then
-    sudo usermod -aG docker "$USER"
+    $SUDO usermod -aG docker "$USER"
     warn "Ajouté au groupe 'docker' — effectif à la prochaine connexion SSH"
   fi
 
@@ -327,7 +333,7 @@ _install_lsd() {
       local tmp_deb
       tmp_deb=$(mktemp --suffix=.deb)
       curl -fsSL "$lsd_url" -o "$tmp_deb" &>/dev/null
-      sudo dpkg -i "$tmp_deb" &>/dev/null
+      $SUDO dpkg -i "$tmp_deb" &>/dev/null
       rm -f "$tmp_deb"
     else
       warn "Impossible de télécharger lsd pour Debian"
@@ -474,7 +480,7 @@ set_default_shell() {
 
   # Ajout à /etc/shells si nécessaire
   if ! grep -q "$zsh_path" /etc/shells 2>/dev/null; then
-    echo "$zsh_path" | sudo tee -a /etc/shells &>/dev/null
+    echo "$zsh_path" | $SUDO tee -a /etc/shells &>/dev/null
   fi
 
   if chsh -s "$zsh_path" "$USER" 2>/dev/null; then
