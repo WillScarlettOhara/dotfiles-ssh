@@ -7,10 +7,10 @@
 set -euo pipefail
 
 # ─── CONFIGURATION ────────────────────────────────────────────────────────────
-DOTFILES_REPO="https://github.com/WillScarlettOhara/dotfiles-ssh" # ← À changer
+DOTFILES_REPO="https://github.com/WillScarlettOhara/dotfiles-ssh"
 DOTFILES_DIR="$HOME/.dotfiles-ssh"
-BW_ITEM_SSH_KEY="SSH GitHub" # ← Nom de l'item Bitwarden contenant ta clé SSH
-SSH_KEY_PATH="$HOME/.ssh/id_ed25519"
+BW_ITEM_SSH_KEY="SSH GitHub"
+SSH_KEY_PATH="$HOME/.ssh/id_rsa"
 
 # ─── COULEURS ─────────────────────────────────────────────────────────────────
 RESET='\033[0m'
@@ -403,29 +403,27 @@ setup_dotfiles() {
 }
 
 _manual_link_dotfiles() {
-  info "Application manuelle des dotfiles..."
-
-  # Fichiers à lier (relatif à DOTFILES_DIR → HOME)
-  local files=(
-    ".zshrc"
-    ".zshenv"
-    ".gitconfig"
-    ".gitignore_global"
-    ".config/nvim"
+  # Fichiers à lier (src dans DOTFILES_DIR → dst dans HOME)
+  # Note : le repo stocke 'zshrc' sans point, on le lie vers ~/.zshrc
+  declare -A FILE_MAP=(
+    ["zshrc"]=".zshrc"
+    [".zshenv"]=".zshenv"
+    [".gitconfig"]=".gitconfig"
+    [".gitignore_global"]=".gitignore_global"
+    ["nvim"]=".config/nvim"
   )
 
-  for f in "${files[@]}"; do
-    local src="$DOTFILES_DIR/$f"
-    local dst="$HOME/$f"
+  for src_name in "${!FILE_MAP[@]}"; do
+    local src="$DOTFILES_DIR/$src_name"
+    local dst="$HOME/${FILE_MAP[$src_name]}"
     if [ -e "$src" ]; then
       mkdir -p "$(dirname "$dst")"
-      # Backup de l'existant
       if [ -e "$dst" ] && [ ! -L "$dst" ]; then
         mv "$dst" "${dst}.bak.$(date +%s)"
         warn "Backup créé : ${dst}.bak.*"
       fi
       ln -sfn "$src" "$dst"
-      info "Lié : $f"
+      info "Lié : $src_name → $dst"
     fi
   done
 }
