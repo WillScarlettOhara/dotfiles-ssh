@@ -107,28 +107,44 @@ install_base_packages() {
   ok "Base packages installed"
 }
 
+# ─── SETUP NODE VIA NVM ───────────────────────────────────────────────────────
+_setup_node_env() {
+  step "Setting up Node.js environment (NVM)"
+
+  export NVM_DIR="$HOME/.nvm"
+
+  if [ ! -s "$NVM_DIR/nvm.sh" ]; then
+    info "Installing NVM..."
+    curl -s -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash &>/dev/null
+  fi
+
+  # Charger NVM dans la session actuelle du script
+  # shellcheck disable=SC1091
+  \. "$NVM_DIR/nvm.sh"
+
+  info "Installing Node.js 24..."
+  nvm install 24 &>/dev/null
+  nvm use 24 &>/dev/null
+
+  ok "Node $(node -v) & NPM $(npm -v) ready"
+}
+
 # ─── STEP 2: BITWARDEN CLI ────────────────────────────────────────────────────
 install_bitwarden_cli() {
   step "Installing Bitwarden CLI"
+
+  # On s'assure que Node est là d'abord
+  _setup_node_env
 
   if has bw; then
     ok "Bitwarden CLI already present ($(bw --version))"
     return
   fi
 
-  if [[ "$DISTRO_FAMILY" == "arch" ]]; then
-    if has paru; then
-      paru -S --noconfirm bitwarden-cli &>/dev/null && ok "Bitwarden CLI installed ($(bw --version))" && return
-    elif has yay; then
-      yay -S --noconfirm bitwarden-cli &>/dev/null && ok "Bitwarden CLI installed ($(bw --version))" && return
-    fi
-  fi
-
-  info "Downloading official Bitwarden CLI binary..."
-  wget -qO /tmp/bw.zip "https://vault.bitwarden.com/download/?app=cli&platform=linux"
-  unzip -q /tmp/bw.zip -d /tmp/bw_extract
-  $SUDO install -m 755 /tmp/bw_extract/bw /usr/local/bin/bw
-  rm -rf /tmp/bw.zip /tmp/bw_extract
+  # Sur Arch/EndeavourOS, si on utilise NVM, il vaut mieux l'installer via NPM
+  # pour éviter les conflits avec le binaire système et ses dépendances WASM.
+  info "Installing Bitwarden CLI via NPM..."
+  npm install -g @bitwarden/cli &>/dev/null
 
   ok "Bitwarden CLI installed ($(bw --version))"
 }
@@ -139,6 +155,8 @@ setup_ssh_keys() {
 
   mkdir -p "$HOME/.ssh"
   chmod 700 "$HOME/.ssh"
+
+  [ -s "$HOME/.nvm/nvm.sh" ] && \. "$HOME/.nvm/nvm.sh"
 
   # ── Login / Unlock ──────────────────────────────────────────────────────────
   local bw_status
