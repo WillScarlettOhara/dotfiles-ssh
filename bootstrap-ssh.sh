@@ -160,7 +160,7 @@ setup_ssh_keys() {
   local attempts=0
   while true; do
     attempts=$((attempts + 1))
-    echo -e "\n  ${YELLOW}🔓${RESET} Bitwarden master password (attempt $attempts/3):"
+    echo -e "\n  ${YELLOW}🔓${RESET} Vault locked. Enter your master password (attempt $attempts/3): \c"
     read -s -r BW_PASS </dev/tty
     echo ""
     export BW_PASS
@@ -168,11 +168,11 @@ setup_ssh_keys() {
     unset BW_PASS
 
     if [ -n "${BW_SESSION:-}" ]; then
-      ok "Bitwarden unlocked"
+      ok "✅ Vault unlocked"
       break
     fi
 
-    error "Wrong password."
+    error "❌ Wrong password, try again."
     if [ "$attempts" -ge 3 ]; then
       warn "3 failed attempts — SSH key step skipped, bootstrap continues."
       return 0
@@ -341,36 +341,63 @@ _install_neovim() {
 _install_neovim_deps() {
   info "Installing neovim dependencies..."
 
+  _pkg_install_verbose() {
+    local pkg="$1"
+    info "  installing ${pkg}..."
+    if eval "$PKG_INSTALL $pkg" &>/dev/null; then
+      ok "  ${pkg} ✔"
+    else
+      warn "  ${pkg} — failed (skipped)"
+    fi
+  }
+
   case "$DISTRO_FAMILY" in
   arch)
-    eval "$PKG_INSTALL lua luarocks ripgrep fd tree-sitter-cli xclip xsel" &>/dev/null
+    for pkg in lua luarocks ripgrep fd tree-sitter xclip xsel; do
+      _pkg_install_verbose "$pkg"
+    done
     ;;
   fedora)
-    eval "$PKG_INSTALL lua luarocks ripgrep fd-find tree-sitter xclip xsel" &>/dev/null
-    # tree-sitter-cli via cargo if available
-    has cargo && cargo install tree-sitter-cli &>/dev/null || true
+    for pkg in lua luarocks ripgrep fd-find xclip xsel; do
+      _pkg_install_verbose "$pkg"
+    done
+    if has cargo; then
+      info "  installing tree-sitter-cli via cargo..."
+      cargo install tree-sitter-cli &>/dev/null && ok "  tree-sitter-cli ✔" || warn "  tree-sitter-cli — cargo install failed"
+    else
+      warn "  tree-sitter-cli skipped (no cargo found)"
+    fi
     ;;
   debian | *)
-    eval "$PKG_INSTALL lua5.4 luarocks ripgrep fd-find xclip xsel" &>/dev/null
-    # fd-find ships as 'fdfind' on Debian — create symlink
+    for pkg in lua5.4 luarocks ripgrep fd-find xclip xsel; do
+      _pkg_install_verbose "$pkg"
+    done
+    # fd-find ships as 'fdfind' on Debian/Ubuntu — create symlink
     if has fdfind && ! has fd; then
       mkdir -p "$HOME/.local/bin"
       ln -sfn "$(command -v fdfind)" "$HOME/.local/bin/fd"
+      ok "  fd symlink → fdfind ✔"
     fi
-    # tree-sitter-cli: no official Debian package, install via npm
+    # tree-sitter-cli: no official Debian package
     if has npm; then
-      $SUDO npm install -g tree-sitter-cli &>/dev/null
+      info "  installing tree-sitter-cli via npm..."
+      $SUDO npm install -g tree-sitter-cli &>/dev/null &&
+        ok "  tree-sitter-cli ✔" ||
+        warn "  tree-sitter-cli — npm install failed"
     elif has cargo; then
-      cargo install tree-sitter-cli &>/dev/null || true
+      info "  installing tree-sitter-cli via cargo..."
+      cargo install tree-sitter-cli &>/dev/null &&
+        ok "  tree-sitter-cli ✔" ||
+        warn "  tree-sitter-cli — cargo install failed"
     else
-      warn "tree-sitter-cli skipped (no npm or cargo found)"
+      warn "  tree-sitter-cli skipped (no npm or cargo found)"
     fi
     ;;
   esac
 
+  ok "Neovim dependencies done"
   # Clipboard note: xclip/xsel require X11 forwarding on headless SSH servers.
-  # Neovim will use OSC52 as fallback which works natively over SSH in most terminals.
-  ok "neovim dependencies installed (lua, luarocks, ripgrep, fd, tree-sitter-cli, xclip)"
+  # Neovim uses OSC52 as fallback — works natively over SSH in modern terminals.
 }
 
 _install_lazygit() {
