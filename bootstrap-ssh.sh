@@ -23,10 +23,10 @@ CYAN='\033[0;36m'
 DIM='\033[2m'
 
 # ─── UI HELPERS ───────────────────────────────────────────────────────────────
-step() { echo -e "\n${BOLD}${BLUE}══>${RESET}${BOLD} $1${RESET}"; }
-ok() { echo -e "  ${GREEN}✔${RESET}  $1"; }
-warn() { echo -e "  ${YELLOW}⚠${RESET}   $1"; }
-error() { echo -e "  ${RED}✘${RESET}  $1" >&2; }
+step() { echo -e "\n${BOLD}${BLUE}══▶${RESET}${BOLD} $1${RESET}"; }
+ok() { echo -e "  ${GREEN}✅${RESET}  $1"; }
+warn() { echo -e "  ${YELLOW}⚠️${RESET}   $1"; }
+error() { echo -e "  ${RED}❌${RESET}  $1" >&2; }
 info() { echo -e "  ${DIM}→${RESET}  $1"; }
 
 banner() {
@@ -38,13 +38,7 @@ banner() {
   echo '  ██████╔╝╚██████╔╝╚██████╔╝   ██║   ███████║   ██║   ██║  ██║██║  ██║██║     '
   echo '  ╚═════╝  ╚═════╝  ╚═════╝    ╚═╝   ╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     '
   echo -e "${RESET}"
-  echo -e "  ${DIM}SSH Environment Bootstrap — $(hostname) — $(date '+%Y-%m-%d %H:%M')${RESET}\n"
-}
-
-confirm() {
-  local prompt="${1:-Continue?}"
-  read -rp "  ${YELLOW}?${RESET}  ${prompt} [y/N] " reply
-  [[ "${reply,,}" =~ ^(y|yes)$ ]]
+  echo -e "  ${DIM}🖥️  SSH Environment Bootstrap — $(hostname) — $(date '+%Y-%m-%d %H:%M')${RESET}\n"
 }
 
 # ─── DISTRO DETECTION ─────────────────────────────────────────────────────────
@@ -76,18 +70,18 @@ detect_distro() {
     warn "Unrecognized distribution: $DISTRO_ID. Some steps may be skipped."
   fi
 
-  ok "Detected: ${BOLD}$DISTRO_ID${RESET} (family: $DISTRO_FAMILY)"
+  ok "🐧 Detected: ${BOLD}$DISTRO_ID${RESET} (family: $DISTRO_FAMILY)"
 }
 
-# ─── COMMAND CHECK ────────────────────────────────────────────────────────────
+# ─── HELPERS ──────────────────────────────────────────────────────────────────
 has() { command -v "$1" &>/dev/null; }
 
-# Root doesn't need sudo
+# Root doesn't need sudo (and sudo is often absent on minimal servers)
 if [ "$EUID" -eq 0 ]; then SUDO=""; else SUDO="sudo"; fi
 
 # ─── STEP 1: BASE PACKAGES ────────────────────────────────────────────────────
 install_base_packages() {
-  step "Installing base packages"
+  step "📦 Installing base packages"
   info "Updating package index..."
   eval "$PKG_UPDATE" &>/dev/null || {
     error "Failed to update package index."
@@ -104,90 +98,79 @@ install_base_packages() {
   esac
 
   eval "$PKG_INSTALL ${common_deps[*]} ${extra[*]}" &>/dev/null
-  ok "Base packages installed"
+  ok "📦 Base packages installed"
 }
 
-# ─── SETUP NODE VIA NVM ───────────────────────────────────────────────────────
+# ─── NODE VIA NVM ─────────────────────────────────────────────────────────────
 _setup_node_env() {
-  step "Setting up Node.js environment (NVM)"
-
   export NVM_DIR="$HOME/.nvm"
 
   if [ ! -s "$NVM_DIR/nvm.sh" ]; then
-    info "Installing NVM..."
+    info "📥 Installing NVM..."
     curl -s -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash &>/dev/null
   fi
 
-  # Charger NVM dans la session actuelle du script
   # shellcheck disable=SC1091
   \. "$NVM_DIR/nvm.sh"
 
-  info "Installing Node.js 24..."
-  nvm install 24 &>/dev/null
-  nvm use 24 &>/dev/null
-
-  ok "Node $(node -v) & NPM $(npm -v) ready"
+  if ! has node; then
+    info "📥 Installing Node.js 24 via NVM..."
+    nvm install 24 &>/dev/null
+    nvm use 24 &>/dev/null
+    ok "⬡  Node $(node -v) & NPM $(npm -v) ready"
+  else
+    ok "⬡  Node $(node -v) already present"
+  fi
 }
 
 # ─── STEP 2: BITWARDEN CLI ────────────────────────────────────────────────────
 install_bitwarden_cli() {
-  step "Checking Bitwarden CLI"
+  step "🔐 Checking Bitwarden CLI"
 
-  # On garde Node/NVM car c'est utile pour d'autres outils (Neovim/Tree-sitter)
   _setup_node_env
 
   local current_version="0.0.0"
   local latest_version
-
-  # Récupérer la dernière version sur GitHub (API)
   latest_version=$(curl -s "https://api.github.com/repos/bitwarden/clients/releases" |
     jq -r '[.[] | select(.name | contains("CLI"))][0].tag_name' | sed 's/cli-v//' || echo "")
 
   if has bw; then
-    # On vérifie si le binaire répond. S'il crash (WASM error), current_version reste 0.0.0
     current_version=$(NODE_NO_WARNINGS=1 bw --version 2>/dev/null || echo "0.0.0")
 
     if [[ "$current_version" == "$latest_version" && "$current_version" != "0.0.0" ]]; then
-      ok "Bitwarden CLI is up to date ($current_version)"
+      ok "🔐 Bitwarden CLI is up to date ($current_version)"
       return
     elif [[ "$current_version" != "0.0.0" ]]; then
-      info "Update available: $current_version -> $latest_version"
+      info "🔄 Update available: $current_version → $latest_version"
     else
-      warn "Bitwarden CLI found but corrupted or non-functional. Reinstalling..."
+      warn "Bitwarden CLI found but non-functional — reinstalling..."
     fi
   fi
 
-  # Installation ou Mise à jour
-  info "Downloading Bitwarden CLI v$latest_version..."
-
-  # Nettoyage préventif des anciens liens/binaires pour éviter les conflits
+  info "📥 Downloading Bitwarden CLI v$latest_version..."
   $SUDO rm -f /usr/local/bin/bw 2>/dev/null || true
-
   wget -q "https://vault.bitwarden.com/download/?app=cli&platform=linux" -O /tmp/bw.zip
   unzip -q -o /tmp/bw.zip -d /tmp/bw_extract
   $SUDO install -m 755 /tmp/bw_extract/bw /usr/local/bin/bw
   rm -rf /tmp/bw.zip /tmp/bw_extract
 
-  ok "Bitwarden CLI installed/updated ($(bw --version))"
+  ok "🔐 Bitwarden CLI installed ($(bw --version))"
 }
 
 # ─── STEP 3: SSH KEYS VIA BITWARDEN ──────────────────────────────────────────
 setup_ssh_keys() {
-  step "Fetching SSH keys from Bitwarden"
+  step "🗝️  Fetching SSH keys from Bitwarden"
 
   mkdir -p "$HOME/.ssh"
   chmod 700 "$HOME/.ssh"
 
   [ -s "$HOME/.nvm/nvm.sh" ] && \. "$HOME/.nvm/nvm.sh"
 
-  # ── Login / Unlock ──────────────────────────────────────────────────────────
   local bw_status
-  # Masque le warning Node.js avec NODE_NO_WARNINGS=1
   bw_status=$(NODE_NO_WARNINGS=1 bw status 2>/dev/null | jq -r '.status' 2>/dev/null || echo "error")
 
   if [[ "$bw_status" == "unauthenticated" ]]; then
     info "Bitwarden login required..."
-    # On reprend ta méthode interactive qui fonctionne
     NODE_NO_WARNINGS=1 bw login </dev/tty
   fi
 
@@ -198,30 +181,26 @@ setup_ssh_keys() {
     echo -e "\n  ${YELLOW}🔓${RESET} Vault locked. Enter your master password (attempt $attempts/3): \c"
     read -s -r BW_PASS </dev/tty
     echo ""
-
     export BW_PASS
-    # On capture l'unlock avec le || true pour éviter le crash
     BW_SESSION=$(NODE_NO_WARNINGS=1 bw unlock --raw --passwordenv BW_PASS 2>/dev/null || true)
     unset BW_PASS
 
     if [ -n "${BW_SESSION:-}" ]; then
-      ok "✅ Vault unlocked"
+      ok "🔓 Vault unlocked"
       break
     fi
 
-    error "❌ Wrong password, try again."
+    error "Wrong password, try again."
     if [ "$attempts" -ge 3 ]; then
       warn "3 failed attempts — SSH key step skipped, bootstrap continues."
       return 0
     fi
   done
 
-  info "Syncing vault..."
+  info "🔄 Syncing vault..."
   NODE_NO_WARNINGS=1 bw sync &>/dev/null || warn "bw sync failed, continuing anyway..."
 
-  # ── Fetch SSH keys ──────────────────────────────────────────────────────────
   local private_key public_key
-  # || true empêche set -e de tuer le script si la clé n'existe pas
   private_key=$(NODE_NO_WARNINGS=1 bw get item "$BW_ITEM_SSH_KEY" 2>/dev/null | jq -r '.sshKey.privateKey // empty' || true)
   public_key=$(NODE_NO_WARNINGS=1 bw get item "$BW_ITEM_SSH_KEY" 2>/dev/null | jq -r '.sshKey.publicKey  // empty' || true)
 
@@ -230,16 +209,16 @@ setup_ssh_keys() {
     printf '%s\n' "$public_key" >"${SSH_KEY_PATH}.pub"
     chmod 600 "$SSH_KEY_PATH"
     chmod 644 "${SSH_KEY_PATH}.pub"
-    ok "SSH key deployed → $SSH_KEY_PATH"
+    ok "🗝️  SSH key deployed → $SSH_KEY_PATH"
   else
     warn "Empty sshKey field for item '${BW_ITEM_SSH_KEY}'."
     warn "Make sure the item type is 'SSH Key' in Bitwarden."
   fi
 
-  info "Adding github.com to known_hosts..."
+  info "🌐 Adding github.com to known_hosts..."
   ssh-keyscan github.com >>"$HOME/.ssh/known_hosts" 2>/dev/null
   chmod 644 "$HOME/.ssh/known_hosts"
-  ok "known_hosts updated"
+  ok "🌐 known_hosts updated"
 
   NODE_NO_WARNINGS=1 bw lock &>/dev/null || true
   unset BW_SESSION
@@ -247,7 +226,7 @@ setup_ssh_keys() {
 
 # ─── STEP 4: ESSENTIAL TOOLS ──────────────────────────────────────────────────
 install_tools() {
-  step "Installing essential tools"
+  step "🛠️  Installing essential tools"
 
   _install_zoxide
   _install_lsd
@@ -256,19 +235,17 @@ install_tools() {
   _install_neovim_deps
   _install_lazygit
   _install_zsh_plugins
-
-  # Run post-installation bootstrap for Neovim (Treesitter parsers, Lazy, etc.)
   _bootstrap_neovim
 
-  ok "All tools installed"
+  ok "🛠️  All tools installed"
 }
 
 # ─── STEP 5: DOCKER ───────────────────────────────────────────────────────────
 install_docker() {
-  step "Installation de Docker"
+  step "🐳 Installing Docker"
 
   if has docker; then
-    ok "Docker already present ($(docker --version))"
+    ok "🐳 Docker already present ($(docker --version))"
     return
   fi
 
@@ -278,9 +255,9 @@ install_docker() {
     $SUDO systemctl enable --now docker &>/dev/null
     ;;
   debian | fedora | *)
-    info "Downloading official Docker install script..."
+    info "📥 Downloading official Docker install script..."
     curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
-    info "Running Docker installer..."
+    info "⚙️  Running Docker installer..."
     $SUDO sh /tmp/get-docker.sh &>/dev/null
     rm -f /tmp/get-docker.sh
     $SUDO systemctl enable --now docker &>/dev/null
@@ -289,38 +266,38 @@ install_docker() {
 
   if getent group docker &>/dev/null; then
     $SUDO usermod -aG docker "$USER"
-    warn "Added to 'docker' group — effective on next SSH login"
+    warn "👥 Added to 'docker' group — effective on next SSH login"
   fi
 
-  ok "Docker installed ($(docker --version))"
+  ok "🐳 Docker installed ($(docker --version))"
 }
 
+# ─── TOOL FUNCTIONS ───────────────────────────────────────────────────────────
 _install_zoxide() {
   if has zoxide; then
-    ok "zoxide already present"
+    ok "⚡ zoxide already present"
     return
   fi
-  info "Installing zoxide..."
+  info "📥 Installing zoxide..."
   case "$DISTRO_FAMILY" in
   arch | fedora) eval "$PKG_INSTALL zoxide" &>/dev/null ;;
   *) curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash &>/dev/null ;;
   esac
-  ok "zoxide installed"
+  ok "⚡ zoxide installed"
 }
 
 _install_lsd() {
   if has lsd; then
-    ok "lsd already present"
+    ok "📂 lsd already present"
     return
   fi
-  info "Installing lsd..."
+  info "📥 Installing lsd..."
   case "$DISTRO_FAMILY" in
   arch | fedora) eval "$PKG_INSTALL lsd" &>/dev/null ;;
   debian | *)
     local lsd_url
     lsd_url=$(curl -s https://api.github.com/repos/lsd-rs/lsd/releases/latest |
       grep -Po '"browser_download_url": *"\K[^"]*amd64\.deb' | head -1 || true)
-
     if [ -n "$lsd_url" ]; then
       local tmp_deb
       tmp_deb=$(mktemp --suffix=.deb)
@@ -332,34 +309,35 @@ _install_lsd() {
     fi
     ;;
   esac
-  ok "lsd installed"
+  ok "📂 lsd installed"
 }
 
 _install_fzf() {
   if has fzf; then
-    ok "fzf already present"
+    ok "🔍 fzf already present"
     return
   fi
-  info "Installing fzf..."
+  info "📥 Installing fzf..."
   eval "$PKG_INSTALL fzf" &>/dev/null
-  ok "fzf installed"
+  ok "🔍 fzf installed"
 }
 
 _install_neovim() {
+  # Check nvim actually runs — AppImage without FUSE reports as present but crashes
   if has nvim && nvim --version &>/dev/null; then
-    ok "neovim already present ($(nvim --version | head -1))"
+    ok "📝 neovim already present ($(nvim --version | head -1))"
     _sync_neovim_config
     return
   fi
 
   if has nvim; then
-    warn "neovim found but not functional — reinstalling..."
+    warn "neovim found but not functional (broken AppImage?) — reinstalling..."
     $SUDO rm -f "$(command -v nvim)" 2>/dev/null || true
     $SUDO rm -f /usr/local/bin/nvim 2>/dev/null || true
     $SUDO rm -rf /opt/nvim-linux-x86_64 2>/dev/null || true
   fi
 
-  info "Installing neovim (official tar.gz)..."
+  info "📥 Installing neovim (official tar.gz)..."
   case "$DISTRO_FAMILY" in
   arch | fedora) eval "$PKG_INSTALL neovim" &>/dev/null ;;
   debian | *)
@@ -371,56 +349,46 @@ _install_neovim() {
     ;;
   esac
   _sync_neovim_config
-  ok "neovim installed ($(nvim --version | head -1))"
+  ok "📝 neovim installed ($(nvim --version | head -1))"
 }
 
 _install_neovim_deps() {
-  info "Installing neovim dependencies..."
+  info "📦 Installing neovim dependencies..."
 
-  _pkg_install_verbose() {
+  _pkg_verbose() {
     local pkg="$1"
-    info "  installing ${pkg}..."
+    info "  ↳ installing ${pkg}..."
     if eval "$PKG_INSTALL $pkg" &>/dev/null; then
-      ok "  ${pkg} ✔"
+      ok "    ${pkg}"
     else
-      warn "  ${pkg} — failed (skipped)"
+      warn "    ${pkg} — failed (skipped)"
     fi
   }
 
   case "$DISTRO_FAMILY" in
   arch)
-    for pkg in lua luarocks ripgrep fd tree-sitter; do
-      _pkg_install_verbose "$pkg"
-    done
+    for pkg in lua luarocks ripgrep fd tree-sitter; do _pkg_verbose "$pkg"; done
     ;;
   fedora)
-    for pkg in lua luarocks ripgrep fd-find; do
-      _pkg_install_verbose "$pkg"
-    done
+    for pkg in lua luarocks ripgrep fd-find; do _pkg_verbose "$pkg"; done
     if has cargo; then
-      info "  installing tree-sitter-cli via cargo..."
-      if cargo install tree-sitter-cli &>/dev/null; then ok "  tree-sitter-cli ✔"; else warn "  tree-sitter failed"; fi
+      info "  ↳ installing tree-sitter-cli via cargo..."
+      if cargo install tree-sitter-cli &>/dev/null; then ok "    tree-sitter-cli"; else warn "    tree-sitter-cli — failed"; fi
     fi
     ;;
   debian | *)
-    # Installation via les dépôts classiques
-    for pkg in lua5.4 luarocks ripgrep fd-find; do
-      _pkg_install_verbose "$pkg"
-    done
+    for pkg in lua5.4 luarocks ripgrep fd-find; do _pkg_verbose "$pkg"; done
 
-    # ─── Création du lien symbolique pour fdfind ────────
+    # fd-find ships as 'fdfind' on Debian/Ubuntu — create alias
     if has fdfind && ! has fd; then
       mkdir -p "$HOME/.local/bin"
       ln -sfn "$(command -v fdfind)" "$HOME/.local/bin/fd"
-      # On s'assure que le PATH est à jour pour la session actuelle
       [[ ":$PATH:" != *":$HOME/.local/bin:"* ]] && export PATH="$HOME/.local/bin:$PATH"
-      ok "  fd alias created ✔"
+      ok "    fd → fdfind alias created"
     fi
 
-    # ─── Intégration de NVM pour Node.js et tree-sitter-cli ─────────
-    info "  installing Node.js (via NVM) & tree-sitter-cli..."
-    export NVM_DIR="$HOME/.nvm"
-
+    # tree-sitter-cli via NVM/npm
+    info "  ↳ setting up Node.js for tree-sitter-cli..."
     export NVM_DIR="$HOME/.nvm"
     if [ ! -s "$NVM_DIR/nvm.sh" ]; then
       curl -s -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash &>/dev/null
@@ -431,25 +399,25 @@ _install_neovim_deps() {
     if has nvm; then
       nvm install 24 &>/dev/null
       if npm install -g tree-sitter-cli &>/dev/null; then
-        ok "  tree-sitter-cli (via nvm) ✔"
+        ok "    tree-sitter-cli (via npm)"
       else
-        warn "  tree-sitter-cli — npm install failed"
+        warn "    tree-sitter-cli — npm install failed"
       fi
     else
-      warn "  nvm not found, skipping tree-sitter-cli"
+      warn "    tree-sitter-cli — nvm not available"
     fi
     ;;
   esac
 
-  ok "Neovim dependencies done"
+  ok "📦 Neovim dependencies installed"
 }
 
 _install_lazygit() {
   if has lazygit; then
-    ok "lazygit already present"
+    ok "🦥 lazygit already present"
     return
   fi
-  info "Installing lazygit..."
+  info "📥 Installing lazygit..."
   case "$DISTRO_FAMILY" in
   arch) eval "$PKG_INSTALL lazygit" &>/dev/null ;;
   fedora)
@@ -458,10 +426,11 @@ _install_lazygit() {
     ;;
   debian | *)
     local LAZYGIT_VERSION
-    LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" | grep -Po '"tag_name": *"v\K[^"]*' || true)
-
+    LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" |
+      grep -Po '"tag_name": *"v\K[^"]*' || true)
     if [ -n "$LAZYGIT_VERSION" ]; then
-      curl -fsSL -o /tmp/lazygit.tar.gz "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz" &>/dev/null
+      curl -fsSL -o /tmp/lazygit.tar.gz \
+        "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz" &>/dev/null
       $SUDO tar -C /usr/local/bin -xzf /tmp/lazygit.tar.gz lazygit
       rm -f /tmp/lazygit.tar.gz
     else
@@ -469,7 +438,7 @@ _install_lazygit() {
     fi
     ;;
   esac
-  ok "lazygit installed"
+  ok "🦥 lazygit installed"
 }
 
 _sync_neovim_config() {
@@ -477,48 +446,46 @@ _sync_neovim_config() {
   local nvim_dotfiles_dir="$HOME/.dotfiles-nvim"
   local nvim_repo="git@github.com:WillScarlettOhara/.dotfiles.git"
 
-  # 1. Vérifier la clé SSH (indispensable pour git@github.com)
   if [ ! -f "$SSH_KEY_PATH" ]; then
-    warn "SSH key not found — neovim config skipped"
+    warn "🗝️  SSH key not found — neovim config skipped (rerun after Bitwarden setup)"
     return
   fi
 
-  info "Syncing neovim config from .dotfiles..."
+  info "🔄 Syncing neovim config from .dotfiles..."
 
-  # Lancer l'agent SSH pour la durée de la synchro
+  # Ephemeral ssh-agent for the clone
   local agent_pid
   eval "$(ssh-agent -s)" &>/dev/null
   agent_pid=$SSH_AGENT_PID
   ssh-add "$SSH_KEY_PATH" &>/dev/null
 
   if [ -d "$nvim_dotfiles_dir" ]; then
-    info "  Updating local repo..."
-    # On force le pull pour écraser les changements locaux éventuels
-    git -C "$nvim_dotfiles_dir" fetch origin master &>/dev/null
-    git -C "$nvim_dotfiles_dir" reset --hard origin/master &>/dev/null
+    info "  ↳ Updating local repo (fetch + hard reset)..."
+    # fetch + hard reset avoids issues with shallow clones and rebases
+    git -C "$nvim_dotfiles_dir" fetch origin master &>/dev/null &&
+      git -C "$nvim_dotfiles_dir" reset --hard origin/master &>/dev/null ||
+      warn "  Could not update neovim dotfiles repo"
   else
-    info "  Cloning repo (sparse)..."
+    info "  ↳ Cloning repo (sparse checkout)..."
     git clone --depth=1 --filter=blob:none --sparse --branch master \
       "$nvim_repo" "$nvim_dotfiles_dir" &>/dev/null
     git -C "$nvim_dotfiles_dir" sparse-checkout set nvim/.config/nvim &>/dev/null
   fi
 
-  # 2. Gestion du lien symbolique
   local nvim_src="$nvim_dotfiles_dir/nvim/.config/nvim"
   if [ -d "$nvim_src" ]; then
     mkdir -p "$HOME/.config"
-    # Supprimer l'ancien lien ou dossier s'il existe et n'est pas correct
-    [ -e "$nvim_config_dir" ] && [ ! -L "$nvim_config_dir" ] && mv "$nvim_config_dir" "${nvim_config_dir}.bak"
-
+    # Backup real directory if it exists (not a symlink)
+    [ -d "$nvim_config_dir" ] && [ ! -L "$nvim_config_dir" ] &&
+      mv "$nvim_config_dir" "${nvim_config_dir}.bak.$(date +%s)"
     ln -sfn "$nvim_src" "$nvim_config_dir"
-    ok "Neovim config linked → $nvim_config_dir"
+    ok "📝 Neovim config linked → $nvim_config_dir"
   else
-    error "nvim/.config/nvim not found in repo! Check your folder structure."
+    error "nvim/.config/nvim not found in repo — check your folder structure."
   fi
 
-  # 3. Forcer la mise à jour des plugins de Neovim (Lazy.nvim)
   if has nvim; then
-    info "  Updating Neovim plugins (headless)..."
+    info "  ↳ Updating Neovim plugins (headless)..."
     nvim --headless "+Lazy! sync" +qa &>/dev/null || true
   fi
 
@@ -526,35 +493,40 @@ _sync_neovim_config() {
 }
 
 _bootstrap_neovim() {
-  info "Bootstrapping Neovim parsers..."
-  # Force l'installation des parsers de base en mode Headless
-  if has nvim; then
-    nvim --headless "+TSInstallSync regex bash" "+qa" &>/dev/null || true
-    ok "Treesitter parsers initialized"
-  fi
+  if ! has nvim; then return; fi
+  info "🌳 Bootstrapping Treesitter parsers (regex, bash)..."
+  nvim --headless "+TSInstallSync regex bash" "+qa" &>/dev/null || true
+  ok "🌳 Treesitter parsers initialized"
 }
 
 _install_zsh_plugins() {
   local ZINIT_HOME="${XDG_DATA_HOME:-${HOME}/.local/share}/zinit/zinit.git"
   if [ ! -d "$ZINIT_HOME" ]; then
-    info "Installing zinit..."
+    info "📥 Installing zinit..."
     mkdir -p "$(dirname "$ZINIT_HOME")"
     git clone --depth=1 https://github.com/zdharma-continuum/zinit.git "$ZINIT_HOME" &>/dev/null
-    ok "zinit installed"
+    ok "⚡ zinit installed"
   else
-    ok "zinit already present"
+    ok "⚡ zinit already present"
   fi
 }
 
 # ─── STEP 6: SSH DOTFILES ─────────────────────────────────────────────────────
 setup_dotfiles() {
-  step "Setting up SSH dotfiles"
+  step "📂 Setting up SSH dotfiles"
 
   if [ -d "$DOTFILES_DIR" ]; then
-    info "Updating existing dotfiles repo..."
-    git -C "$DOTFILES_DIR" pull --rebase --quiet 2>/dev/null || warn "Could not update dotfiles"
+    info "🔄 Updating existing dotfiles repo (fetch + hard reset)..."
+    # BUG FIX: pull --rebase silently fails on shallow clones with nothing to rebase.
+    # fetch + hard reset is reliable in all cases.
+    if git -C "$DOTFILES_DIR" fetch origin &>/dev/null &&
+      git -C "$DOTFILES_DIR" reset --hard origin/HEAD &>/dev/null; then
+      ok "🔄 Dotfiles repo up to date"
+    else
+      warn "Could not update dotfiles repo — using current local version"
+    fi
   else
-    info "Cloning $DOTFILES_REPO..."
+    info "📥 Cloning $DOTFILES_REPO..."
     git clone --depth=1 "$DOTFILES_REPO" "$DOTFILES_DIR" 2>/dev/null || {
       error "Could not clone repo. Check the DOTFILES_REPO URL."
       return 1
@@ -562,17 +534,18 @@ setup_dotfiles() {
   fi
 
   if has stow; then
-    info "Applying via GNU Stow..."
+    info "🔗 Applying via GNU Stow..."
     cd "$DOTFILES_DIR"
     stow --restow --target="$HOME" . 2>/dev/null || warn "stow encountered a conflict (existing files)"
   else
     _manual_link_dotfiles
   fi
 
-  ok "SSH dotfiles applied → $DOTFILES_DIR"
+  ok "📂 SSH dotfiles applied → $DOTFILES_DIR"
 }
 
 _manual_link_dotfiles() {
+  # Repo stores 'zshrc' without the leading dot — link it to ~/.zshrc
   declare -A FILE_MAP=(
     ["zshrc"]=".zshrc"
     [".zshenv"]=".zshenv"
@@ -588,17 +561,17 @@ _manual_link_dotfiles() {
       mkdir -p "$(dirname "$dst")"
       if [ -e "$dst" ] && [ ! -L "$dst" ]; then
         mv "$dst" "${dst}.bak.$(date +%s)"
-        warn "Backup created: ${dst}.bak.*"
+        warn "💾 Backup created: ${dst}.bak.*"
       fi
       ln -sfn "$src" "$dst"
-      info "Linked: $src_name → $dst"
+      ok "🔗 Linked: $src_name → $dst"
     fi
   done
 }
 
 # ─── STEP 7: DEFAULT SHELL ────────────────────────────────────────────────────
 set_default_shell() {
-  step "Setting zsh as default shell"
+  step "🐚 Setting zsh as default shell"
 
   local zsh_path
   zsh_path=$(which zsh 2>/dev/null || true)
@@ -609,7 +582,7 @@ set_default_shell() {
   fi
 
   if [ "$SHELL" = "$zsh_path" ]; then
-    ok "zsh is already the default shell"
+    ok "🐚 zsh is already the default shell"
     return
   fi
 
@@ -618,7 +591,7 @@ set_default_shell() {
   fi
 
   if chsh -s "$zsh_path" "$USER" 2>/dev/null; then
-    ok "zsh set as default shell (effective on next login)"
+    ok "🐚 zsh set as default shell (effective on next login)"
   else
     warn "chsh failed. Run manually: chsh -s $zsh_path"
   fi
@@ -626,29 +599,24 @@ set_default_shell() {
 
 # ─── STEP 8: SECURE SSH DAEMON ────────────────────────────────────────────────
 setup_ssh_daemon() {
-  step "Securing SSH Daemon (Key-only access)"
+  step "🔒 Securing SSH daemon (key-only access)"
 
-  # 1. On s'assure que le service est installé
   case "$DISTRO_FAMILY" in
   arch) eval "$PKG_INSTALL openssh" &>/dev/null ;;
   debian | fedora) eval "$PKG_INSTALL openssh-server" &>/dev/null ;;
   esac
 
-  # 2. Sauvegarde de la config d'origine
   if [ ! -f /etc/ssh/sshd_config.bak ]; then
     $SUDO cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
+    info "💾 Original sshd_config backed up"
   fi
 
-  # 3. Modification de la configuration pour interdire les mots de passe
-  # On utilise 'tee' pour écrire dans un fichier protégé par sudo
-  info "Applying hardening: PasswordAuthentication no..."
-  echo "
-# Configured by bootstrap-ssh.sh
+  info "⚙️  Applying hardening (PasswordAuthentication no)..."
+  echo "# Configured by bootstrap-ssh.sh
 Protocol 2
 HostKey /etc/ssh/ssh_host_rsa_key
 HostKey /etc/ssh/ssh_host_ed25519_key
 
-# Security Settings
 PasswordAuthentication no
 PubkeyAuthentication yes
 PermitRootLogin prohibit-password
@@ -660,46 +628,42 @@ AcceptEnv LANG LC_*
 Subsystem sftp /usr/lib/ssh/sftp-server
 " | $SUDO tee /etc/ssh/sshd_config.d/99-hardened.conf &>/dev/null
 
-  # Note: Sur les systèmes modernes, on préfère ajouter un fichier dans sshd_config.d/
-  # pour ne pas écraser le fichier principal. On vérifie s'il est inclus :
   if ! $SUDO grep -q "Include /etc/ssh/sshd_config.d/\*.conf" /etc/ssh/sshd_config; then
     echo "Include /etc/ssh/sshd_config.d/*.conf" | $SUDO tee -a /etc/ssh/sshd_config &>/dev/null
   fi
 
-  # 4. Autoriser sa propre clé (id_rsa.pub) dans authorized_keys
   if [ -f "${SSH_KEY_PATH}.pub" ]; then
     mkdir -p "$HOME/.ssh"
     cat "${SSH_KEY_PATH}.pub" >>"$HOME/.ssh/authorized_keys"
     chmod 600 "$HOME/.ssh/authorized_keys"
-    ok "Added your Bitwarden SSH key to authorized_keys"
+    ok "🔑 Bitwarden SSH key added to authorized_keys"
   else
     warn "No public key found to add to authorized_keys!"
   fi
 
-  # 5. Redémarrage et activation du service
-  info "Restarting SSH service..."
+  info "🔄 Restarting SSH service..."
   $SUDO systemctl enable --now sshd &>/dev/null || $SUDO systemctl enable --now ssh &>/dev/null
-
-  ok "SSH Daemon secured and running (Key-only)"
+  ok "🔒 SSH daemon secured (key-only access enabled)"
 }
 
 # ─── SUMMARY ──────────────────────────────────────────────────────────────────
 print_summary() {
   echo ""
   echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════════════════╗${RESET}"
-  echo -e "${BOLD}${GREEN}║             Bootstrap completed successfully!            ║${RESET}"
+  echo -e "${BOLD}${GREEN}║          🎉 Bootstrap completed successfully! 🎉          ║${RESET}"
   echo -e "${BOLD}${GREEN}╚══════════════════════════════════════════════════════════╝${RESET}"
   echo ""
   echo -e "  ${BOLD}Next steps:${RESET}"
-  echo -e "  ${CYAN}1.${RESET} Run ${BOLD}zsh${RESET} or open a new SSH session"
-  echo -e "  ${CYAN}2.${RESET} Reconnect to apply docker group membership"
-  echo -e "  ${CYAN}3.${RESET} Edit ${BOLD}~/.dotfiles-ssh/zshrc${RESET} to customize"
+  echo -e "  ${CYAN}1.${RESET} 🐚 Run ${BOLD}zsh${RESET} or open a new SSH session"
+  echo -e "  ${CYAN}2.${RESET} 🐳 Reconnect to apply docker group membership"
+  echo -e "  ${CYAN}3.${RESET} 📝 Edit ${BOLD}~/.dotfiles-ssh/zshrc${RESET} to customize"
   echo ""
-  echo -e "  ${YELLOW}Note sur le Presse-papiers (Clipboard SSH):${RESET}"
-  echo -e "  Le presse-papiers système (xclip/xsel) ne fonctionne pas via SSH."
-  echo -e "  ${DIM}Dans ton fichier config lua de Neovim, active OSC 52 pour que${RESET}"
-  echo -e "  ${DIM}la copie se fasse via ton émulateur de terminal host :${RESET}"
-  echo -e "  ${BOLD}vim.g.clipboard = { name = 'OSC 52', copy = { ['+'] = require('vim.ui.clipboard.osc52').copy('+'), ['*'] = require('vim.ui.clipboard.osc52').copy('*') }, paste = { ['+'] = require('vim.ui.clipboard.osc52').paste('+'), ['*'] = require('vim.ui.clipboard.osc52').paste('*') } }${RESET}"
+  echo -e "  ${YELLOW}📋 Clipboard over SSH:${RESET}"
+  echo -e "  ${DIM}xclip/xsel don't work on headless servers. Enable OSC 52 in your Neovim config:${RESET}"
+  echo -e "  ${BOLD}vim.g.clipboard = { name='OSC 52', copy={['+']=require('vim.ui.clipboard.osc52').copy('+'), ...} }${RESET}"
+  echo ""
+  echo -e "  ${DIM}Dotfiles : $DOTFILES_DIR${RESET}"
+  echo -e "  ${DIM}Bitwarden session : closed${RESET}"
   echo ""
 }
 
@@ -710,12 +674,12 @@ run_interactive() {
   echo ""
 
   echo -e "${BOLD}What do you want to install?${RESET}"
-  echo -e "  ${CYAN}[1]${RESET} Everything (recommended)"
-  echo -e "  ${CYAN}[2]${RESET} Packages + tools only (skip Bitwarden)"
-  echo -e "  ${CYAN}[3]${RESET} Bitwarden + SSH keys only"
-  echo -e "  ${CYAN}[4]${RESET} Dotfiles only"
-  echo -e "  ${CYAN}[5]${RESET} Docker only"
-  echo -e "  ${CYAN}[q]${RESET} Quit"
+  echo -e "  ${CYAN}[1]${RESET} 🚀 Everything (recommended)"
+  echo -e "  ${CYAN}[2]${RESET} 🛠️  Packages + tools only (skip Bitwarden)"
+  echo -e "  ${CYAN}[3]${RESET} 🔐 Bitwarden + SSH keys only"
+  echo -e "  ${CYAN}[4]${RESET} 📂 Dotfiles only"
+  echo -e "  ${CYAN}[5]${RESET} 🐳 Docker only"
+  echo -e "  ${CYAN}[q]${RESET} 👋 Quit"
   echo ""
   read -rp "  Choice [1]: " choice
   choice="${choice:-1}"
@@ -750,7 +714,7 @@ run_interactive() {
     install_docker
     ;;
   q | Q)
-    echo "Goodbye!"
+    echo "👋 Goodbye!"
     exit 0
     ;;
   *)
@@ -770,6 +734,7 @@ run_interactive() {
 }
 
 # ─── ENTRY POINT ──────────────────────────────────────────────────────────────
+# Non-interactive when piped (curl | bash) → full install
 if [ -t 0 ]; then
   run_interactive
 else
