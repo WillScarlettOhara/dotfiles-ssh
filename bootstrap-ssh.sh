@@ -224,6 +224,12 @@ setup_ssh_keys() {
   unset BW_SESSION
 }
 
+echo ""
+echo "🛡️  Configuration de Git (Anonymisation Github)..."
+git config --global user.name "WillScarlettOhara"
+git config --global user.email "39462014+WillScarlettOhara@users.noreply.github.com"
+echo "  ✅ Identité Git configurée sur l'adresse privée (noreply)."
+
 # ─── STEP 4: ESSENTIAL TOOLS ──────────────────────────────────────────────────
 install_tools() {
   step "🛠️  Installing essential tools"
