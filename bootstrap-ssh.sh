@@ -163,6 +163,7 @@ setup_ssh_keys() {
 
   mkdir -p "$HOME/.ssh"
   chmod 700 "$HOME/.ssh"
+  chmod 600 "$HOME/.ssh/authorized_keys"
 
   [ -s "$HOME/.nvm/nvm.sh" ] && \. "$HOME/.nvm/nvm.sh"
 
@@ -631,7 +632,7 @@ ChallengeResponseAuthentication no
 UsePAM yes
 PrintMotd no
 AcceptEnv LANG LC_*
-Subsystem sftp /usr/lib/ssh/sftp-server
+Subsystem sftp /usr/lib/openssh/sftp-server
 " | $SUDO tee /etc/ssh/sshd_config.d/99-hardened.conf &>/dev/null
 
   if ! $SUDO grep -q "Include /etc/ssh/sshd_config.d/\*.conf" /etc/ssh/sshd_config; then
