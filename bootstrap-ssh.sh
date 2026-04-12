@@ -11,6 +11,8 @@ DOTFILES_REPO="https://github.com/WillScarlettOhara/dotfiles-ssh"
 DOTFILES_DIR="$HOME/.dotfiles-ssh"
 BW_ITEM_SSH_KEY="SSH GitHub"
 SSH_KEY_PATH="$HOME/.ssh/id_rsa"
+NVM_VERSION="v0.40.4"
+NODE_VERSION="24"
 
 # ─── COLORS ───────────────────────────────────────────────────────────────────
 RESET='\033[0m'
@@ -28,6 +30,15 @@ ok() { echo -e "  ${GREEN}✅${RESET}  $1"; }
 warn() { echo -e "  ${YELLOW}⚠️${RESET}   $1"; }
 error() { echo -e "  ${RED}❌${RESET}  $1" >&2; }
 info() { echo -e "  ${DIM}→${RESET}  $1"; }
+
+# ─── CLEANUP ──────────────────────────────────────────────────────────────────
+_SSH_AGENT_PID=""
+
+cleanup() {
+  NODE_NO_WARNINGS=1 bw lock &>/dev/null || true
+  [ -n "$_SSH_AGENT_PID" ] && kill "$_SSH_AGENT_PID" &>/dev/null || true
+}
+trap cleanup EXIT
 
 banner() {
   echo -e "${CYAN}"
@@ -107,16 +118,16 @@ _setup_node_env() {
 
   if [ ! -s "$NVM_DIR/nvm.sh" ]; then
     info "📥 Installing NVM..."
-    curl -s -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash &>/dev/null
+    curl -s -o- "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" | bash &>/dev/null
   fi
 
   # shellcheck disable=SC1091
   \. "$NVM_DIR/nvm.sh"
 
   if ! has node; then
-    info "📥 Installing Node.js 24 via NVM..."
-    nvm install 24 &>/dev/null
-    nvm use 24 &>/dev/null
+    info "📥 Installing Node.js ${NODE_VERSION} via NVM..."
+    nvm install "$NODE_VERSION" &>/dev/null
+    nvm use "$NODE_VERSION" &>/dev/null
     ok "⬡  Node $(node -v) & NPM $(npm -v) ready"
   else
     ok "⬡  Node $(node -v) already present"
@@ -175,6 +186,10 @@ setup_ssh_keys() {
     NODE_NO_WARNINGS=1 bw login </dev/tty
   fi
 
+  local pass_file
+  pass_file=$(mktemp /tmp/bw_pass.XXXXXX)
+  chmod 600 "$pass_file"
+
   export BW_SESSION
   local attempts=0
   while true; do
@@ -182,9 +197,10 @@ setup_ssh_keys() {
     echo -e "\n  ${YELLOW}🔓${RESET} Vault locked. Enter your master password (attempt $attempts/3): \c"
     read -s -r BW_PASS </dev/tty
     echo ""
-    export BW_PASS
-    BW_SESSION=$(NODE_NO_WARNINGS=1 bw unlock --raw --passwordenv BW_PASS 2>/dev/null || true)
+    echo "$BW_PASS" > "$pass_file"
     unset BW_PASS
+
+    BW_SESSION=$(NODE_NO_WARNINGS=1 bw unlock --raw --passwordfile "$pass_file" 2>/dev/null || true)
 
     if [ -n "${BW_SESSION:-}" ]; then
       ok "🔓 Vault unlocked"
@@ -193,17 +209,20 @@ setup_ssh_keys() {
 
     error "Wrong password, try again."
     if [ "$attempts" -ge 3 ]; then
+      shred -u "$pass_file" 2>/dev/null || rm -f "$pass_file"
       warn "3 failed attempts — SSH key step skipped, bootstrap continues."
       return 0
     fi
   done
 
+  shred -u "$pass_file" 2>/dev/null || rm -f "$pass_file"
+
   info "🔄 Syncing vault..."
-  NODE_NO_WARNINGS=1 bw sync &>/dev/null || warn "bw sync failed, continuing anyway..."
+  NODE_NO_WARNINGS=1 bw sync --session "$BW_SESSION" &>/dev/null || warn "bw sync failed, continuing anyway..."
 
   local private_key public_key
-  private_key=$(NODE_NO_WARNINGS=1 bw get item "$BW_ITEM_SSH_KEY" 2>/dev/null | jq -r '.sshKey.privateKey // empty' || true)
-  public_key=$(NODE_NO_WARNINGS=1 bw get item "$BW_ITEM_SSH_KEY" 2>/dev/null | jq -r '.sshKey.publicKey  // empty' || true)
+  private_key=$(NODE_NO_WARNINGS=1 bw get item "$BW_ITEM_SSH_KEY" --session "$BW_SESSION" 2>/dev/null | jq -r '.sshKey.privateKey // empty' || true)
+  public_key=$(NODE_NO_WARNINGS=1 bw get item "$BW_ITEM_SSH_KEY" --session "$BW_SESSION" 2>/dev/null | jq -r '.sshKey.publicKey  // empty' || true)
 
   if [ -n "$private_key" ]; then
     printf '%s\n' "$private_key" >"$SSH_KEY_PATH"
@@ -220,16 +239,20 @@ setup_ssh_keys() {
   ssh-keyscan github.com >>"$HOME/.ssh/known_hosts" 2>/dev/null
   chmod 644 "$HOME/.ssh/known_hosts"
   ok "🌐 known_hosts updated"
-
-  NODE_NO_WARNINGS=1 bw lock &>/dev/null || true
-  unset BW_SESSION
 }
 
-echo ""
-echo "🛡️  Configuration de Git (Anonymisation Github)..."
-git config --global user.name "WillScarlettOhara"
-git config --global user.email "39462014+WillScarlettOhara@users.noreply.github.com"
-echo "  ✅ Identité Git configurée sur l'adresse privée (noreply)."
+# ─── STEP 3.5: GIT CONFIG ─────────────────────────────────────────────────────
+setup_git_config() {
+  step "🛡️  Configuration de Git (Anonymisation Github)"
+
+  if [ -z "$(git config --global --get user.name 2>/dev/null)" ]; then
+    git config --global user.name "WillScarlettOhara"
+    git config --global user.email "39462014+WillScarlettOhara@users.noreply.github.com"
+    ok "Identité Git configurée sur l'adresse privée (noreply)."
+  else
+    ok "Identité Git existante conservée ($(git config --global --get user.name))."
+  fi
+}
 
 # ─── STEP 4: ESSENTIAL TOOLS ──────────────────────────────────────────────────
 install_tools() {
@@ -247,7 +270,7 @@ install_tools() {
   ok "🛠️  All tools installed"
 }
 
-# ─── STEP 5: DOCKER ───────────────────────────────────────────────────────────
+# ─── STEP 5: DOCKER ────────────────────────────────────────────────────────────
 install_docker() {
   step "🐳 Installing Docker"
 
@@ -330,7 +353,6 @@ _install_fzf() {
 }
 
 _install_neovim() {
-  # Check nvim actually runs — AppImage without FUSE reports as present but crashes
   if has nvim && nvim --version &>/dev/null; then
     ok "📝 neovim already present ($(nvim --version | head -1))"
     _sync_neovim_config
@@ -386,7 +408,6 @@ _install_neovim_deps() {
   debian | *)
     for pkg in lua5.4 luarocks ripgrep fd-find; do _pkg_verbose "$pkg"; done
 
-    # fd-find ships as 'fdfind' on Debian/Ubuntu — create alias
     if has fdfind && ! has fd; then
       mkdir -p "$HOME/.local/bin"
       ln -sfn "$(command -v fdfind)" "$HOME/.local/bin/fd"
@@ -394,17 +415,16 @@ _install_neovim_deps() {
       ok "    fd → fdfind alias created"
     fi
 
-    # tree-sitter-cli via NVM/npm
     info "  ↳ setting up Node.js for tree-sitter-cli..."
     export NVM_DIR="$HOME/.nvm"
     if [ ! -s "$NVM_DIR/nvm.sh" ]; then
-      curl -s -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash &>/dev/null
+      curl -s -o- "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" | bash &>/dev/null
     fi
     # shellcheck disable=SC1091
     [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
     if has nvm; then
-      nvm install 24 &>/dev/null
+      nvm install "$NODE_VERSION" &>/dev/null
       if npm install -g tree-sitter-cli &>/dev/null; then
         ok "    tree-sitter-cli (via npm)"
       else
@@ -460,15 +480,12 @@ _sync_neovim_config() {
 
   info "🔄 Syncing neovim config from .dotfiles..."
 
-  # Ephemeral ssh-agent for the clone
-  local agent_pid
   eval "$(ssh-agent -s)" &>/dev/null
-  agent_pid=$SSH_AGENT_PID
+  _SSH_AGENT_PID=$SSH_AGENT_PID
   ssh-add "$SSH_KEY_PATH" &>/dev/null
 
   if [ -d "$nvim_dotfiles_dir" ]; then
     info "  ↳ Updating local repo (fetch + hard reset)..."
-    # fetch + hard reset avoids issues with shallow clones and rebases
     git -C "$nvim_dotfiles_dir" fetch origin master &>/dev/null &&
       git -C "$nvim_dotfiles_dir" reset --hard origin/master &>/dev/null ||
       warn "  Could not update neovim dotfiles repo"
@@ -482,7 +499,6 @@ _sync_neovim_config() {
   local nvim_src="$nvim_dotfiles_dir/nvim/.config/nvim"
   if [ -d "$nvim_src" ]; then
     mkdir -p "$HOME/.config"
-    # Backup real directory if it exists (not a symlink)
     [ -d "$nvim_config_dir" ] && [ ! -L "$nvim_config_dir" ] &&
       mv "$nvim_config_dir" "${nvim_config_dir}.bak.$(date +%s)"
     ln -sfn "$nvim_src" "$nvim_config_dir"
@@ -496,7 +512,8 @@ _sync_neovim_config() {
     nvim --headless "+Lazy! sync" +qa &>/dev/null || true
   fi
 
-  kill "$agent_pid" &>/dev/null || true
+  kill "$_SSH_AGENT_PID" &>/dev/null || true
+  _SSH_AGENT_PID=""
 }
 
 _bootstrap_neovim() {
@@ -524,8 +541,6 @@ setup_dotfiles() {
 
   if [ -d "$DOTFILES_DIR" ]; then
     info "🔄 Updating existing dotfiles repo (fetch + hard reset)..."
-    # BUG FIX: pull --rebase silently fails on shallow clones with nothing to rebase.
-    # fetch + hard reset is reliable in all cases.
     if git -C "$DOTFILES_DIR" fetch origin &>/dev/null &&
       git -C "$DOTFILES_DIR" reset --hard origin/HEAD &>/dev/null; then
       ok "🔄 Dotfiles repo up to date"
@@ -540,25 +555,15 @@ setup_dotfiles() {
     }
   fi
 
-  if has stow; then
-    info "🔗 Applying via GNU Stow..."
-    cd "$DOTFILES_DIR"
-    stow --restow --target="$HOME" . 2>/dev/null || warn "stow encountered a conflict (existing files)"
-  else
-    _manual_link_dotfiles
-  fi
+  _link_dotfiles
 
   ok "📂 SSH dotfiles applied → $DOTFILES_DIR"
 }
 
-_manual_link_dotfiles() {
-  # Repo stores 'zshrc' without the leading dot — link it to ~/.zshrc
+_link_dotfiles() {
   declare -A FILE_MAP=(
     ["zshrc"]=".zshrc"
-    [".zshenv"]=".zshenv"
     [".gitconfig"]=".gitconfig"
-    [".gitignore_global"]=".gitignore_global"
-    ["nvim"]=".config/nvim"
   )
 
   for src_name in "${!FILE_MAP[@]}"; do
@@ -619,6 +624,7 @@ setup_ssh_daemon() {
   fi
 
   info "⚙️  Applying hardening (PasswordAuthentication no)..."
+  $SUDO mkdir -p /etc/ssh/sshd_config.d
   echo "# Configured by bootstrap-ssh.sh
 Protocol 2
 HostKey /etc/ssh/ssh_host_rsa_key
@@ -648,14 +654,11 @@ Subsystem sftp /usr/lib/openssh/sftp-server
     warn "No public key found to add to authorized_keys!"
   fi
 
-  # Use 'reload' instead of 'restart' — reload sends SIGHUP to apply the new
-  # config without dropping active SSH connections (including this very session).
   info "🔄 Reloading SSH service (config applied without dropping connections)..."
   if $SUDO systemctl reload sshd &>/dev/null ||
     $SUDO systemctl reload ssh &>/dev/null; then
     ok "🔒 SSH daemon secured — new config applied (key-only access enabled)"
   else
-    # Service not yet running: start it for the first time
     $SUDO systemctl enable --now sshd &>/dev/null ||
       $SUDO systemctl enable --now ssh &>/dev/null ||
       warn "Could not start SSH service"
@@ -702,6 +705,7 @@ run_interactive() {
     install_base_packages
     install_bitwarden_cli
     setup_ssh_keys
+    setup_git_config
     setup_ssh_daemon
     install_tools
     install_docker
@@ -719,6 +723,7 @@ run_interactive() {
     install_base_packages
     install_bitwarden_cli
     setup_ssh_keys
+    setup_git_config
     ;;
   4)
     setup_dotfiles
@@ -735,6 +740,7 @@ run_interactive() {
     install_base_packages
     install_bitwarden_cli
     setup_ssh_keys
+    setup_git_config
     setup_ssh_daemon
     install_tools
     install_docker
@@ -747,7 +753,6 @@ run_interactive() {
 }
 
 # ─── ENTRY POINT ──────────────────────────────────────────────────────────────
-# Non-interactive when piped (curl | bash) → full install
 if [ -t 0 ]; then
   run_interactive
 else
@@ -756,6 +761,7 @@ else
   install_base_packages
   install_bitwarden_cli
   setup_ssh_keys
+  setup_git_config
   setup_ssh_daemon
   install_tools
   install_docker

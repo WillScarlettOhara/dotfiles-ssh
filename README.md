@@ -18,12 +18,15 @@ bash <(curl -fsSL https://raw.githubusercontent.com/WillScarlettOhara/dotfiles-s
 | Étape                   | Description                                             |
 | ----------------------- | ------------------------------------------------------- |
 | **1. Détection distro** | Arch · Fedora · Debian/Ubuntu                           |
-| **2. Paquets de base**  | `curl git wget zsh build-essential …`                   |
-| **3. Bitwarden CLI**    | Via `paru/yay` (Arch) ou `npm` (autres)                 |
-| **4. Clés SSH**         | Récupérées depuis ton coffre Bitwarden (pièces jointes) |
-| **5. Outils**           | `zoxide lsd fzf neovim zinit`                           |
-| **6. Dotfiles**         | Clone ce dépôt + liens symboliques vers `~`             |
-| **7. Shell**            | zsh défini comme shell par défaut (`chsh`)              |
+| **2. Paquets de base**  | `curl git wget zsh build-essential …`                  |
+| **3. Bitwarden CLI**    | Téléchargement du binaire officiel + Node.js via NVM    |
+| **4. Clés SSH**         | Récupérées depuis ton coffre Bitwarden (type SSH Key)   |
+| **5. Git config**       | Identité GitHub noreply (ne remplace pas si existante)   |
+| **6. Outils**           | `zoxide lsd fzf neovim lazygit zinit`                   |
+| **7. Docker**           | Via paquets (Arch) ou script officiel (Debian/Fedora)   |
+| **8. Dotfiles**         | Clone ce dépôt + liens symboliques vers `~`             |
+| **9. Shell**            | zsh défini comme shell par défaut (`chsh`)               |
+| **10. SSH daemon**      | Hardening : clé uniquement, pas de mot de passe         |
 
 ---
 
@@ -32,28 +35,26 @@ bash <(curl -fsSL https://raw.githubusercontent.com/WillScarlettOhara/dotfiles-s
 ```
 dotfiles-ssh/
 ├── bootstrap-ssh.sh      ← Script principal
-├── .zshrc                ← Config zsh allégée (pas de p10k, pas de tmux)
-├── .gitconfig            ← (optionnel) ta config git
-├── .gitignore_global     ← (optionnel)
-└── nvim/                 ← (optionnel) config neovim minimale pour SSH
-    └── init.lua
+├── zshrc                 ← Config zsh allégée (pas de p10k, pas de tmux)
+├── .gitconfig            ← Config git (identité noreply)
+└── README.md
 ```
+
+Les fichiers sont liés symboliquement via `_link_dotfiles()` :
+- `zshrc` → `~/.zshrc`
+- `.gitconfig` → `~/.gitconfig`
 
 ---
 
 ## Configuration Bitwarden : préparer ses clés SSH
 
-Dans ton coffre Bitwarden, crée un **Login** nommé exactement `ssh-perso` (ou change `BW_ITEM_SSH_KEY` dans le script).
-
-Attache-y deux fichiers :
-
-- `id_ed25519` — ta clé privée
-- `id_ed25519.pub` — ta clé publique
+Dans ton coffre Bitwarden, crée un élément de type **SSH Key** nommé exactement `SSH GitHub` (ou change `BW_ITEM_SSH_KEY` dans le script).
 
 ```
-Bitwarden > Nouvel élément > Login
-  Nom        : ssh-perso
-  Pièces jointes : id_ed25519  +  id_ed25519.pub
+Bitwarden > Nouvel élément > SSH Key
+  Nom        : SSH GitHub
+  Clé privée : (coller le contenu de id_rsa)
+  Clé publique : (coller le contenu de id_rsa.pub)
 ```
 
 ---
@@ -64,8 +65,10 @@ En haut de `bootstrap-ssh.sh` :
 
 ```bash
 DOTFILES_REPO="https://github.com/TON_USER/dotfiles-ssh"  # URL de ce dépôt
-BW_ITEM_SSH_KEY="ssh-perso"                                # Nom de l'item Bitwarden
-SSH_KEY_PATH="$HOME/.ssh/id_ed25519"                       # Destination de la clé
+BW_ITEM_SSH_KEY="SSH GitHub"                               # Nom de l'item Bitwarden
+SSH_KEY_PATH="$HOME/.ssh/id_rsa"                            # Destination de la clé
+NVM_VERSION="v0.40.4"                                      # Version NVM
+NODE_VERSION="24"                                          # Version Node.js via NVM
 ```
 
 ---
