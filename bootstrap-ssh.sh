@@ -90,6 +90,13 @@ has() { command -v "$1" &>/dev/null; }
 # Root doesn't need sudo (and sudo is often absent on minimal servers)
 if [ "$EUID" -eq 0 ]; then SUDO=""; else SUDO="sudo"; fi
 
+# ─── STEP 0: TIMEZONE ──────────────────────────────────────────────────────────
+set_timezone() {
+  step "🕐 Setting timezone to Europe/Paris"
+  $SUDO timedatectl set-timezone Europe/Paris
+  ok "🕐 Timezone set to Europe/Paris"
+}
+
 # ─── STEP 1: BASE PACKAGES ────────────────────────────────────────────────────
 install_base_packages() {
   step "📦 Installing base packages"
@@ -702,6 +709,7 @@ run_interactive() {
 
   case "$choice" in
   1)
+    set_timezone
     install_base_packages
     install_bitwarden_cli
     setup_ssh_keys
@@ -713,6 +721,7 @@ run_interactive() {
     set_default_shell
     ;;
   2)
+    set_timezone
     install_base_packages
     install_tools
     install_docker
@@ -720,6 +729,7 @@ run_interactive() {
     set_default_shell
     ;;
   3)
+    set_timezone
     install_base_packages
     install_bitwarden_cli
     setup_ssh_keys
@@ -737,6 +747,7 @@ run_interactive() {
     ;;
   *)
     warn "Invalid choice, running full install"
+    set_timezone
     install_base_packages
     install_bitwarden_cli
     setup_ssh_keys
@@ -758,6 +769,7 @@ if [ -t 0 ]; then
 else
   banner
   detect_distro
+  set_timezone
   install_base_packages
   install_bitwarden_cli
   setup_ssh_keys
