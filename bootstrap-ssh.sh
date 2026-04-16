@@ -134,6 +134,7 @@ install_base_packages() {
   if ! command -v opencode &>/dev/null; then
     info "🤖 Installing OpenCode..."
     if curl -fsSL https://opencode.ai/install | bash; then
+      export PATH="$HOME/.local/bin:$PATH"
       ok "🤖 OpenCode installed"
     else
       warn "🤖 OpenCode installation failed"
