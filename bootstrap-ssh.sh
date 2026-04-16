@@ -105,18 +105,27 @@ install_base_packages() {
     error "Failed to update package index."
     return 1
   }
-
+  
   local common_deps=(curl git wget unzip tar jq)
-
+  
   case "$DISTRO_FAMILY" in
   debian) local extra=(zsh build-essential ca-certificates gnupg apt-transport-https openssh-server) ;;
   fedora) local extra=(zsh gcc make ca-certificates gnupg2 openssh-server) ;;
   arch) local extra=(zsh base-devel ca-certificates gnupg openssh) ;;
   *) local extra=() ;;
   esac
-
+  
   eval "$PKG_INSTALL ${common_deps[*]} ${extra[*]}" &>/dev/null
   ok "📦 Base packages installed"
+
+  # Installation d'OpenCode
+  if ! command -v opencode &>/dev/null; then
+    info "🤖 Installing OpenCode..."
+    curl -fsSL https://opencode.ai/install | bash &>/dev/null
+    ok "🤖 OpenCode installed"
+  else
+    ok "🤖 OpenCode already present"
+  fi
 }
 
 # ─── NODE VIA NVM ─────────────────────────────────────────────────────────────
@@ -177,26 +186,30 @@ install_bitwarden_cli() {
 
 # ─── STEP 3: SSH KEYS VIA BITWARDEN ──────────────────────────────────────────
 setup_ssh_keys() {
-  step "🗝️  Fetching SSH keys from Bitwarden"
-
+  step "🗝️  Fetching secrets from Bitwarden"
+  
   mkdir -p "$HOME/.ssh"
   chmod 700 "$HOME/.ssh"
+  touch "$HOME/.ssh/authorized_keys"
   chmod 600 "$HOME/.ssh/authorized_keys"
+  
+  # OpenCode Auth directory
+  mkdir -p "$HOME/.local/share/opencode"
 
   [ -s "$HOME/.nvm/nvm.sh" ] && \. "$HOME/.nvm/nvm.sh"
-
+  
   local bw_status
   bw_status=$(NODE_NO_WARNINGS=1 bw status 2>/dev/null | jq -r '.status' 2>/dev/null || echo "error")
-
+  
   if [[ "$bw_status" == "unauthenticated" ]]; then
     info "Bitwarden login required..."
     NODE_NO_WARNINGS=1 bw login </dev/tty
   fi
-
+  
   local pass_file
   pass_file=$(mktemp /tmp/bw_pass.XXXXXX)
   chmod 600 "$pass_file"
-
+  
   export BW_SESSION
   local attempts=0
   while true; do
@@ -206,14 +219,14 @@ setup_ssh_keys() {
     echo ""
     echo "$BW_PASS" > "$pass_file"
     unset BW_PASS
-
+    
     BW_SESSION=$(NODE_NO_WARNINGS=1 bw unlock --raw --passwordfile "$pass_file" 2>/dev/null || true)
-
+    
     if [ -n "${BW_SESSION:-}" ]; then
       ok "🔓 Vault unlocked"
       break
     fi
-
+    
     error "Wrong password, try again."
     if [ "$attempts" -ge 3 ]; then
       shred -u "$pass_file" 2>/dev/null || rm -f "$pass_file"
@@ -221,16 +234,16 @@ setup_ssh_keys() {
       return 0
     fi
   done
-
   shred -u "$pass_file" 2>/dev/null || rm -f "$pass_file"
-
+  
   info "🔄 Syncing vault..."
   NODE_NO_WARNINGS=1 bw sync --session "$BW_SESSION" &>/dev/null || warn "bw sync failed, continuing anyway..."
-
+  
+  # 1. SSH Key
   local private_key public_key
   private_key=$(NODE_NO_WARNINGS=1 bw get item "$BW_ITEM_SSH_KEY" --session "$BW_SESSION" 2>/dev/null | jq -r '.sshKey.privateKey // empty' || true)
   public_key=$(NODE_NO_WARNINGS=1 bw get item "$BW_ITEM_SSH_KEY" --session "$BW_SESSION" 2>/dev/null | jq -r '.sshKey.publicKey  // empty' || true)
-
+  
   if [ -n "$private_key" ]; then
     printf '%s\n' "$private_key" >"$SSH_KEY_PATH"
     printf '%s\n' "$public_key" >"${SSH_KEY_PATH}.pub"
@@ -239,14 +252,25 @@ setup_ssh_keys() {
     ok "🗝️  SSH key deployed → $SSH_KEY_PATH"
   else
     warn "Empty sshKey field for item '${BW_ITEM_SSH_KEY}'."
-    warn "Make sure the item type is 'SSH Key' in Bitwarden."
   fi
 
+  # 2. OpenCode Auth JSON
+  local oc_auth
+  oc_auth=$(NODE_NO_WARNINGS=1 bw list items --search "OpenCode Auth" --session "$BW_SESSION" 2>/dev/null | \
+    jq -r '.[] | select(.name == "OpenCode Auth") | .notes // empty' || true)
+  if [ -n "$oc_auth" ]; then
+    echo "$oc_auth" > "$HOME/.local/share/opencode/auth.json"
+    ok "🤖 OpenCode auth tokens restored"
+  else
+    warn "OpenCode Auth not found in Bitwarden"
+  fi
+  
   info "🌐 Adding github.com to known_hosts..."
   ssh-keyscan github.com >>"$HOME/.ssh/known_hosts" 2>/dev/null
   chmod 644 "$HOME/.ssh/known_hosts"
   ok "🌐 known_hosts updated"
 }
+
 
 # ─── STEP 3.5: GIT CONFIG ─────────────────────────────────────────────────────
 setup_git_config() {
