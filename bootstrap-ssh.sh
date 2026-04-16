@@ -75,7 +75,7 @@ detect_distro() {
   elif [[ "$DISTRO_ID" == "debian" || "$DISTRO_LIKE" == *"debian"* || "$DISTRO_ID" == "ubuntu" || "$DISTRO_LIKE" == *"ubuntu"* ]]; then
     DISTRO_FAMILY="debian"
     PKG_INSTALL="$SUDO apt-get install -y"
-    PKG_UPDATE="$SUDO apt-get update -qq"
+    PKG_UPDATE="$SUDO apt-get update"
   else
     DISTRO_FAMILY="unknown"
     warn "Unrecognized distribution: $DISTRO_ID. Some steps may be skipped."
@@ -100,6 +100,18 @@ set_timezone() {
 # ─── STEP 1: BASE PACKAGES ────────────────────────────────────────────────────
 install_base_packages() {
   step "📦 Installing base packages"
+
+  # Ensure sudo credentials are cached (tty-friendly retry for curl|bash)
+  if [ "$EUID" -ne 0 ]; then
+    while ! $SUDO -v 2>/dev/null; do
+      echo -e "  ${YELLOW}🔓${RESET} sudo password required: \c"
+      read -s -r SUDO_PASS </dev/tty
+      echo ""
+      echo "$SUDO_PASS" | $SUDO -S -v 2>/dev/null || true
+      unset SUDO_PASS
+    done
+  fi
+
   info "Updating package index..."
   eval "$PKG_UPDATE" || {
     error "Failed to update package index."
@@ -109,7 +121,7 @@ install_base_packages() {
   local common_deps=(curl git wget unzip tar jq)
   
   case "$DISTRO_FAMILY" in
-  debian) local extra=(zsh build-essential ca-certificates gnupg apt-transport-https openssh-server) ;;
+  debian) local extra=(zsh build-essential ca-certificates gnupg apt-transport-https openssh-server) ; PKG_UPDATE="$SUDO apt-get update" ;;
   fedora) local extra=(zsh gcc make ca-certificates gnupg2 openssh-server) ;;
   arch) local extra=(zsh base-devel ca-certificates gnupg openssh) ;;
   *) local extra=() ;;
