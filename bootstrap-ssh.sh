@@ -101,7 +101,7 @@ set_timezone() {
 install_base_packages() {
   step "📦 Installing base packages"
   info "Updating package index..."
-  eval "$PKG_UPDATE" &>/dev/null || {
+  eval "$PKG_UPDATE" || {
     error "Failed to update package index."
     return 1
   }
@@ -115,14 +115,17 @@ install_base_packages() {
   *) local extra=() ;;
   esac
   
-  eval "$PKG_INSTALL ${common_deps[*]} ${extra[*]}" &>/dev/null
+  eval "$PKG_INSTALL ${common_deps[*]} ${extra[*]}" || warn "Some packages may have failed to install"
   ok "📦 Base packages installed"
 
   # Installation d'OpenCode
   if ! command -v opencode &>/dev/null; then
     info "🤖 Installing OpenCode..."
-    curl -fsSL https://opencode.ai/install | bash &>/dev/null
-    ok "🤖 OpenCode installed"
+    if curl -fsSL https://opencode.ai/install | bash; then
+      ok "🤖 OpenCode installed"
+    else
+      warn "🤖 OpenCode installation failed"
+    fi
   else
     ok "🤖 OpenCode already present"
   fi
