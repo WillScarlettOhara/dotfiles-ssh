@@ -141,7 +141,7 @@ fi
 # ─── EXPORTS ──────────────────────────────────────────────────────────────────
 export EDITOR="nvim"
 export VISUAL="nvim"
-export PATH="$HOME/.local/bin:$PATH"
+export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$HOME/.opencode/bin:$PATH"
 
 export LS_COLORS="*.lua=38;5;214:*.rs=38;5;167:*.py=38;5;109:*.md=38;5;108:*.toml=38;5;175:*.json=38;5;214:*.yaml=38;5;109:*.yml=38;5;109:*.sh=38;5;142:*.zsh=38;5;142:*.fish=38;5;142:*.js=38;5;214:*.ts=38;5;109:*.jsx=38;5;214:*.tsx=38;5;109:*.html=38;5;167:*.css=38;5;109:*.scss=38;5;175:*.go=38;5;109:*.php=38;5;175:*.rb=38;5;167:*.sql=38;5;108:*.vim=38;5;142:*.conf=38;5;246:*.env=38;5;214:*.lock=38;5;239:*.log=38;5;239:*.png=38;5;108:*.jpg=38;5;108:*.gif=38;5;108:*.svg=38;5;108:*.pdf=38;5;167:*.zip=38;5;175:*.tar=38;5;175:*.gz=38;5;175:"
 
