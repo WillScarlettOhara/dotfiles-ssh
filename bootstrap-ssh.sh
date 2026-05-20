@@ -701,6 +701,12 @@ Subsystem sftp /usr/lib/openssh/sftp-server
     warn "No public key found to add to authorized_keys!"
   fi
 
+  # Ouvrir le port SSH dans le firewall
+  if command -v ufw &>/dev/null && sudo ufw status | grep -q "Status: active"; then
+    sudo ufw allow 22
+    ok "🔓 Port 22 opened in UFW"
+  fi
+
   info "🔄 Reloading SSH service (config applied without dropping connections)..."
   if $SUDO systemctl reload sshd &>/dev/null ||
     $SUDO systemctl reload ssh &>/dev/null; then
