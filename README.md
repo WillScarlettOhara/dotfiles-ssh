@@ -4,11 +4,18 @@
 
 ## Démarrage rapide
 
+### Linux / WSL
+
 ```bash
-# Sur la machine distante :
 curl -fsSL https://raw.githubusercontent.com/WillScarlettOhara/dotfiles-ssh/main/bootstrap-ssh.sh | bash
-# — ou —
-bash <(curl -fsSL https://raw.githubusercontent.com/WillScarlettOhara/dotfiles-ssh/main/bootstrap-ssh.sh)
+```
+
+### Windows (PowerShell 5.1+)
+
+```powershell
+irm https://raw.githubusercontent.com/WillScarlettOhara/dotfiles-ssh/main/bootstrap-win.ps1 | iex
+# — ou par étape —
+powershell -ExecutionPolicy Bypass -File .\bootstrap-win.ps1 -Stage Bitwarden
 ```
 
 ---
@@ -34,7 +41,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/WillScarlettOhara/dotfiles-s
 
 ```
 dotfiles-ssh/
-├── bootstrap-ssh.sh      ← Script principal
+├── bootstrap-ssh.sh      ← Script Linux/WSL
+├── bootstrap-win.ps1     ← Script Windows
 ├── zshrc                 ← Config zsh allégée (pas de p10k, pas de tmux)
 ├── .gitconfig            ← Config git (identité noreply)
 └── README.md
@@ -48,7 +56,7 @@ Les fichiers sont liés symboliquement via `_link_dotfiles()` :
 
 ## Configuration Bitwarden : préparer ses clés SSH
 
-Dans ton coffre Bitwarden, crée un élément de type **SSH Key** nommé exactement `SSH GitHub` (ou change `BW_ITEM_SSH_KEY` dans le script).
+Dans ton coffre Bitwarden, crée un élément de type **SSH Key** nommé exactement `SSH GitHub` (ou change `BW_ITEM_SSH_KEY` / `BwItemSshKey` dans le script).
 
 ```
 Bitwarden > Nouvel élément > SSH Key
@@ -66,9 +74,20 @@ En haut de `bootstrap-ssh.sh` :
 ```bash
 DOTFILES_REPO="https://github.com/TON_USER/dotfiles-ssh"  # URL de ce dépôt
 BW_ITEM_SSH_KEY="SSH GitHub"                               # Nom de l'item Bitwarden
-SSH_KEY_PATH="$HOME/.ssh/id_ed25519"                         # Destination de la clé
+SSH_KEY_PATH="$HOME/.ssh/id_ed25519"                       # Destination de la clé
 NVM_VERSION="v0.40.4"                                      # Version NVM
 NODE_VERSION="24"                                          # Version Node.js via NVM
+```
+
+En haut de `bootstrap-win.ps1` :
+
+```powershell
+$Config = @{
+    DotfilesRepo = 'https://github.com/TON_USER/dotfiles-ssh'
+    SshKeyPath   = Join-Path $env:USERPROFILE '.ssh\id_ed25519'
+    BwItemSshKey = 'SSH GitHub'
+    # ...
+}
 ```
 
 ---
