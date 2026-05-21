@@ -10,7 +10,7 @@ set -euo pipefail
 DOTFILES_REPO="https://github.com/WillScarlettOhara/dotfiles-ssh"
 DOTFILES_DIR="$HOME/.dotfiles-ssh"
 BW_ITEM_SSH_KEY="SSH GitHub"
-SSH_KEY_PATH="$HOME/.ssh/id_rsa"
+SSH_KEY_PATH="$HOME/.ssh/id_ed25519"
 NVM_VERSION="v0.40.4"
 NODE_VERSION="24"
 

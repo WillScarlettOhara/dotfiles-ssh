@@ -53,8 +53,8 @@ Dans ton coffre Bitwarden, crée un élément de type **SSH Key** nommé exactem
 ```
 Bitwarden > Nouvel élément > SSH Key
   Nom        : SSH GitHub
-  Clé privée : (coller le contenu de id_rsa)
-  Clé publique : (coller le contenu de id_rsa.pub)
+  Clé privée : (coller le contenu de id_ed25519)
+  Clé publique : (coller le contenu de id_ed25519.pub)
 ```
 
 ---
@@ -66,7 +66,7 @@ En haut de `bootstrap-ssh.sh` :
 ```bash
 DOTFILES_REPO="https://github.com/TON_USER/dotfiles-ssh"  # URL de ce dépôt
 BW_ITEM_SSH_KEY="SSH GitHub"                               # Nom de l'item Bitwarden
-SSH_KEY_PATH="$HOME/.ssh/id_rsa"                            # Destination de la clé
+SSH_KEY_PATH="$HOME/.ssh/id_ed25519"                         # Destination de la clé
 NVM_VERSION="v0.40.4"                                      # Version NVM
 NODE_VERSION="24"                                          # Version Node.js via NVM
 ```
