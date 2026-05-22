@@ -599,7 +599,7 @@ function Install-PSProfile {
     }
 
     # Modules
-    Write-Info2 "Installing PSReadLine, PSFzf, posh-git, Terminal-Icons..."
+    Write-Info2 "Installing PSReadLine, PSFzf, posh-git, Terminal-Icons, CompletionPredictor..."
     if (-not (Get-PSRepository PSGallery -ErrorAction SilentlyContinue)) {
         Register-PSRepository -Default
     }
@@ -620,15 +620,26 @@ function Get-DefaultPSProfile {
 # ───────────────────────────────────────────────────────────────────────────
 
 # PSReadLine: history-as-you-type prediction, emacs keys
-if (Get-Module -ListAvailable PSReadLine) {
+$script:IsInteractiveConsole = $false
+try {
+    $script:IsInteractiveConsole = $Host.Name -eq 'ConsoleHost' -and -not [Console]::IsInputRedirected -and -not [Console]::IsOutputRedirected
+} catch {
+    $script:IsInteractiveConsole = $false
+}
+if ($script:IsInteractiveConsole -and (Get-Module -ListAvailable PSReadLine)) {
     Import-Module PSReadLine
     Set-PSReadLineOption -EditMode Emacs
-    Set-PSReadLineOption -PredictionSource HistoryAndPlugin
-    Set-PSReadLineOption -PredictionViewStyle ListView
     Set-PSReadLineOption -HistorySearchCursorMovesToEnd
     Set-PSReadLineKeyHandler -Key UpArrow   -Function HistorySearchBackward
     Set-PSReadLineKeyHandler -Key DownArrow -Function HistorySearchForward
     Set-PSReadLineKeyHandler -Key Tab       -Function MenuComplete
+
+    try {
+        Set-PSReadLineOption -PredictionSource HistoryAndPlugin -ErrorAction Stop
+        Set-PSReadLineOption -PredictionViewStyle ListView -ErrorAction Stop
+    } catch {
+        Set-PSReadLineOption -PredictionSource None -ErrorAction SilentlyContinue
+    }
 }
 
 # zoxide (smarter cd)
@@ -684,12 +695,14 @@ function nvm-refresh {
 }
 
 # Welcome
-$user = $env:USERNAME
-$host_name = $env:COMPUTERNAME
-Write-Host ""
-Write-Host "  $user@$host_name " -NoNewline -ForegroundColor Cyan
-Write-Host "— $(Get-Date -Format 'yyyy-MM-dd HH:mm')" -ForegroundColor DarkGray
-Write-Host ""
+if ($script:IsInteractiveConsole) {
+    $user = $env:USERNAME
+    $host_name = $env:COMPUTERNAME
+    Write-Host ""
+    Write-Host "  $user@$host_name " -NoNewline -ForegroundColor Cyan
+    Write-Host "- $(Get-Date -Format 'yyyy-MM-dd HH:mm')" -ForegroundColor DarkGray
+    Write-Host ""
+}
 '@
 }
 
